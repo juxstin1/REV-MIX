@@ -75,8 +75,73 @@ export interface TransitionPlan {
   matchRate: number;
   /** 0..1 — the model's confidence in this transition */
   score: number;
+  /** the feature breakdown behind the score (tempo/harmony/energy/placement) */
+  features: MixFeatures;
+  /** 0..1 — predicted vocal overlap during the blend */
+  vocalClash: number;
+  /** whether both tracks had vocal analysis available when planned */
+  vocalsKnown: boolean;
   /** human-readable reasoning, shown in the UI */
   notes: string[];
+}
+
+/** Lifecycle of a firing transition, emitted by the scheduler (never inferred
+ *  by the UI). */
+export type TransitionPhase = "ARMING" | "BLENDING" | "BASS_SWAP" | "ECHO_OUT" | "COMPLETE";
+
+/**
+ * Read-only snapshot the CDJ HUD renders. It carries the engine's own scores
+ * and the scheduled AudioContext times — the UI computes nothing here except
+ * a clock countdown. Build it from a plan with {@link hudFromPlan}.
+ */
+export interface TransitionHud {
+  active: boolean;
+  fromDeck: DeckId;
+  toDeck: DeckId;
+  style: TransitionStyle;
+  confidence: number; // 0..1
+  bpmScore: number; // 0..1 tempo affinity
+  keyScore: number; // 0..1 harmonic affinity
+  energyScore: number; // 0..1 energy continuity
+  vocalClash: number; // 0..1
+  vocalsKnown: boolean;
+  phase: TransitionPhase;
+  mixInAt: number; // ctx time the blend starts
+  bassSwapAt?: number; // ctx time the bass hands over
+  dropAt?: number; // ctx time the incoming track hits its drop
+  mixOutAt: number; // ctx time the outgoing track is gone
+}
+
+/** Map a plan + scheduled times into a HUD snapshot. Centralised here so the
+ *  UI never re-derives transition decisions. */
+export function hudFromPlan(
+  plan: TransitionPlan,
+  t: {
+    active: boolean;
+    phase: TransitionPhase;
+    mixInAt: number;
+    bassSwapAt?: number;
+    dropAt?: number;
+    mixOutAt: number;
+  }
+): TransitionHud {
+  return {
+    active: t.active,
+    fromDeck: plan.fromDeck,
+    toDeck: plan.toDeck,
+    style: plan.style,
+    confidence: plan.score,
+    bpmScore: plan.features.tempoAffinity,
+    keyScore: plan.features.harmonicAffinity,
+    energyScore: plan.features.energyContinuity,
+    vocalClash: plan.vocalClash,
+    vocalsKnown: plan.vocalsKnown,
+    phase: t.phase,
+    mixInAt: t.mixInAt,
+    bassSwapAt: t.bassSwapAt,
+    dropAt: t.dropAt,
+    mixOutAt: t.mixOutAt,
+  };
 }
 
 export interface MixFeatures {
@@ -86,11 +151,63 @@ export interface MixFeatures {
   placement: number;
 }
 
-/** Trained-ish weights for the transition scoring model. */
-const W = { tempo: 0.34, harmonic: 0.27, energy: 0.21, placement: 0.18 };
+/**
+ * The "golden" transition profile — every tunable dial behind the automix,
+ * frozen in one place. THIS IS THE LOCKED DEFAULT. Do not tweak these numbers
+ * in place: if you want to experiment, copy this to a new named profile and
+ * switch to it, so the golden behaviour is always recoverable.
+ */
+export interface TransitionProfile {
+  name: string;
+  /** scoring weights — must sum to ~1 */
+  weights: { tempo: number; harmonic: number; energy: number; placement: number };
+  /** how hard a vocal clash dents the score (1 = a full duet halves it twice) */
+  vocalPenalty: number;
+  /** max tempo stretch before we refuse to beatmatch (1.12 = ±12%) */
+  maxStretchPct: number;
+  /** tempo-affinity falloff: 0 score at this folded log2 ratio */
+  tempoTolerance: number;
+  /** energy-continuity sensitivity */
+  energyFactor: number;
+  /** placement window = max(min, duration*frac) seconds around the exit */
+  placementWindowFrac: number;
+  placementWindowMin: number;
+  /** blend length in beats, per style */
+  blendBeats: { ELEMENT_BLEND: number; REVERB_WASH: number; ECHO_OUT: number };
+  /** where in the blend the bass hands over, as a fraction of its length */
+  entrySwapFrac: { ELEMENT_BLEND: number; REVERB_WASH: number };
+  /** reverb-wash triggers: incoming this much lower, or both ends below floor */
+  washEnergyDrop: number;
+  washLowEnergy: number;
+  /** highs-first entry when the intro is this bright or this percussive */
+  entryHighThresh: number;
+  entryPercThresh: number;
+}
 
+export const GOLDEN_PROFILE: Readonly<TransitionProfile> = Object.freeze({
+  name: "golden-v1",
+  weights: { tempo: 0.34, harmonic: 0.27, energy: 0.21, placement: 0.18 },
+  vocalPenalty: 0.5,
+  maxStretchPct: 1.12,
+  tempoTolerance: 0.23,
+  energyFactor: 1.6,
+  placementWindowFrac: 0.18,
+  placementWindowMin: 20,
+  blendBeats: { ELEMENT_BLEND: 64, REVERB_WASH: 32, ECHO_OUT: 8 },
+  entrySwapFrac: { ELEMENT_BLEND: 0.625, REVERB_WASH: 0.5 },
+  washEnergyDrop: 0.22,
+  washLowEnergy: 0.45,
+  entryHighThresh: 0.3,
+  entryPercThresh: 1.25,
+});
+
+/** the live profile (currently always the golden default) */
+const P = GOLDEN_PROFILE;
+
+const W = P.weights;
+const W_VOX = P.vocalPenalty;
 // keylock playback preserves pitch, so a wider stretch stays musical
-const MAX_STRETCH = Math.log2(1.12); // ±12% before we refuse to beatmatch
+const MAX_STRETCH = Math.log2(P.maxStretchPct); // before we refuse to beatmatch
 
 export function scorePair(
   from: TrackAnalysis,
@@ -101,19 +218,22 @@ export function scorePair(
   // tempo: 1 at equal BPM, 0 at ~16% apart (allow half/double time)
   const ratio = Math.abs(Math.log2(to.bpm / from.bpm));
   const foldedRatio = Math.min(ratio, Math.abs(ratio - 1));
-  const tempoAffinity = Math.max(0, 1 - foldedRatio / 0.23);
+  const tempoAffinity = Math.max(0, 1 - foldedRatio / P.tempoTolerance);
 
   const harmonicAffinity = camelotCompatibility(from.camelot, to.camelot);
 
   // energy continuity at the seam
   const eFrom = energyAt(from, startAtFrom);
   const eTo = energyAt(to, to.mixInPoint + 16 * to.beatInterval);
-  const energyContinuity = 1 - Math.min(1, Math.abs(eFrom - eTo) * 1.6);
+  const energyContinuity = 1 - Math.min(1, Math.abs(eFrom - eTo) * P.energyFactor);
 
   // placement: the blend's MIDPOINT should sit near the structural exit
   const mid = startAtFrom + blendSeconds / 2;
   const distToOutro = Math.abs(mid - exitAnchor(from));
-  const placement = Math.max(0, 1 - distToOutro / Math.max(20, from.duration * 0.18));
+  const placement = Math.max(
+    0,
+    1 - distToOutro / Math.max(P.placementWindowMin, from.duration * P.placementWindowFrac)
+  );
 
   const features = { tempoAffinity, harmonicAffinity, energyContinuity, placement };
   const score =
@@ -158,9 +278,6 @@ function vocalClash(
   return n ? acc / n : 0;
 }
 
-/** clash penalty weight — a full duet wipes out half the score */
-const W_VOX = 0.5;
-
 function tempoMatchRate(from: TrackAnalysis, to: TrackAnalysis): number {
   let r = from.bpm / to.bpm;
   if (r > 1.5) r /= 2;
@@ -175,6 +292,12 @@ interface StyleChoice {
   fxNote: string;
 }
 
+/** which element leads, from what the incoming intro actually contains */
+function introEntry(to: TrackAnalysis): EntryElement {
+  const intro = regionProfile(to, to.mixInPoint, to.mixInPoint + 32 * to.beatInterval);
+  return intro.high > P.entryHighThresh || intro.percussive > P.entryPercThresh ? "HIGHS" : "MIDS";
+}
+
 function chooseStyle(from: TrackAnalysis, to: TrackAnalysis): StyleChoice {
   const rate = tempoMatchRate(from, to);
   const stretch = Math.abs(Math.log2(rate));
@@ -183,32 +306,40 @@ function chooseStyle(from: TrackAnalysis, to: TrackAnalysis): StyleChoice {
     return {
       style: "ECHO_OUT",
       entry: "HIGHS",
-      beats: 8,
+      beats: P.blendBeats.ECHO_OUT,
       fxNote: `tempos too far (${from.bpm.toFixed(0)}→${to.bpm.toFixed(0)}) — clean echo cut`,
     };
   }
 
   const eFrom = energyAt(from, from.mixOutPoint);
   const eTo = energyAt(to, to.mixInPoint + 16 * to.beatInterval);
-  if (eTo < eFrom - 0.22 || (eFrom < 0.45 && eTo < 0.45)) {
+  if (eTo < eFrom - P.washEnergyDrop || (eFrom < P.washLowEnergy && eTo < P.washLowEnergy)) {
     const colour = to.mode === "minor" ? "dark" : "bright";
     return {
       style: "REVERB_WASH",
       entry: "MIDS",
-      beats: 32,
+      beats: P.blendBeats.REVERB_WASH,
       fxNote: `energy drop — ${colour} reverb wash (${to.key})`,
     };
   }
 
   // element blend: lead with the element the incoming intro actually has
-  const intro = regionProfile(to, to.mixInPoint, to.mixInPoint + 32 * to.beatInterval);
-  const entry: EntryElement = intro.high > 0.30 || intro.percussive > 1.25 ? "HIGHS" : "MIDS";
+  const entry = introEntry(to);
   return {
     style: "ELEMENT_BLEND",
     entry,
-    beats: 64,
+    beats: P.blendBeats.ELEMENT_BLEND,
     fxNote: `${entry === "HIGHS" ? "percussion-first" : "melody-first"} entry, echo tail out`,
   };
+}
+
+/** Build the choice for an explicitly requested style (REPLAY — "do that kind
+ *  of thing again"). Leaves the default decision path untouched. */
+function forcedChoice(to: TrackAnalysis, style: TransitionStyle): StyleChoice {
+  if (style === "ECHO_OUT") return { style, entry: "HIGHS", beats: P.blendBeats.ECHO_OUT, fxNote: "replay · echo cut" };
+  if (style === "REVERB_WASH") return { style, entry: "MIDS", beats: P.blendBeats.REVERB_WASH, fxNote: "replay · reverb wash" };
+  const entry = introEntry(to);
+  return { style: "ELEMENT_BLEND", entry, beats: P.blendBeats.ELEMENT_BLEND, fxNote: "replay · element blend" };
 }
 
 /**
@@ -221,10 +352,11 @@ export function planTransition(
   from: TrackAnalysis,
   to: TrackAnalysis,
   currentPos: number,
-  forceNow = false
+  forceNow = false,
+  forceStyle?: TransitionStyle
 ): TransitionPlan {
   const toDeck: DeckId = fromDeck === "A" ? "B" : "A";
-  const choice = chooseStyle(from, to);
+  const choice = forceStyle ? forcedChoice(to, forceStyle) : chooseStyle(from, to);
 
   // fit the blend inside the remaining runway
   const fitBeats = (start: number): number => {
@@ -247,10 +379,9 @@ export function planTransition(
       // cut straight into the meat of the new track
       return { swapBeat: 0, startAtTo: lift };
     }
-    const ideal =
-      choice.style === "ELEMENT_BLEND"
-        ? Math.round((b * 0.625) / 8) * 8
-        : Math.round((b * 0.5) / 8) * 8;
+    const frac =
+      choice.style === "ELEMENT_BLEND" ? P.entrySwapFrac.ELEMENT_BLEND : P.entrySwapFrac.REVERB_WASH;
+    const ideal = Math.round((b * frac) / 8) * 8;
     const liftBeats = Math.floor((lift - to.firstDownbeat) / to.beatInterval / 8) * 8;
     const swapBeat = Math.max(8, Math.min(ideal, b - 8, Math.max(8, liftBeats)));
     return { swapBeat, startAtTo: Math.max(to.firstDownbeat, lift - swapBeat * to.beatInterval) };
@@ -315,14 +446,85 @@ export function planTransition(
     liftAtTo: lift,
     matchRate,
     score: Math.max(0, bestScore),
+    features: f,
+    vocalClash: bestClash,
+    vocalsKnown: voxKnown,
     notes,
   };
 }
 
 export interface ScheduledTransition extends TransitionPlan {
-  ctxStart: number;
-  ctxEnd: number;
+  ctxStart: number; // blend start (MIX IN)
+  ctxSwap: number; // bass handover
+  ctxDrop: number; // incoming track's drop
+  ctxEcho: number; // exit phase (echo / wash)
+  ctxEnd: number; // outgoing gone (MIX OUT)
   cancel: () => void;
+}
+
+/** A flight-recorder snapshot of one fired transition — what actually happened,
+ *  so a great mix can be recognised and repeated. Times are seconds relative to
+ *  MIX IN. */
+export interface TransitionTelemetry {
+  style: TransitionStyle;
+  profile: string;
+  outBpm: number;
+  inBpm: number;
+  pitchShiftPct: number;
+  confidence: number;
+  beats: number;
+  vocalClash: number;
+  bassSwapSec: number;
+  mixOutSec: number;
+}
+
+/**
+ * Thresholds for auto-flagging a transition as risky. These tune which mixes
+ * land in the REVIEW pile — they are diagnostics, NOT audio DSP. Feedback
+ * collected here is meant to refine transition CHOICE later (style/timing/
+ * tolerances), never to mutate the stretcher or FX.
+ */
+export const REVIEW_THRESHOLDS = Object.freeze({
+  minConfidence: 0.55,
+  maxVocalClash: 0.4,
+  maxPitchShift: 5.0,
+  /** a long ELEMENT_BLEND is the worst place for a big stretch (most exposure) */
+  blendPitchShift: 4.5,
+});
+
+export type RiskCode = "LOW_CONFIDENCE" | "VOCAL_CLASH" | "HIGH_PITCH" | "LONG_BLEND_PITCH";
+
+export const RISK_LABEL: Record<RiskCode, string> = {
+  LOW_CONFIDENCE: "LOW CONFIDENCE",
+  VOCAL_CLASH: "VOCAL CLASH",
+  HIGH_PITCH: "HIGH PITCH",
+  LONG_BLEND_PITCH: "LONG BLEND + PITCH",
+};
+
+/** Pure: which auto-risk flags apply to a fired transition's telemetry. */
+export function transitionRisk(t: TransitionTelemetry): RiskCode[] {
+  const r: RiskCode[] = [];
+  const pitch = Math.abs(t.pitchShiftPct);
+  if (t.confidence < REVIEW_THRESHOLDS.minConfidence) r.push("LOW_CONFIDENCE");
+  if (t.vocalClash > REVIEW_THRESHOLDS.maxVocalClash) r.push("VOCAL_CLASH");
+  if (pitch > REVIEW_THRESHOLDS.maxPitchShift) r.push("HIGH_PITCH");
+  if (t.style === "ELEMENT_BLEND" && pitch > REVIEW_THRESHOLDS.blendPitchShift) r.push("LONG_BLEND_PITCH");
+  return r;
+}
+
+export function telemetryFromSched(s: ScheduledTransition, outBpm: number, inBpm: number): TransitionTelemetry {
+  return {
+    style: s.style,
+    profile: P.name,
+    outBpm,
+    inBpm,
+    pitchShiftPct: (s.matchRate - 1) * 100,
+    confidence: s.score,
+    beats: s.beats,
+    vocalClash: s.vocalClash,
+    bassSwapSec: s.ctxSwap - s.ctxStart,
+    mixOutSec: s.ctxEnd - s.ctxStart,
+  };
 }
 
 /** dotted-eighth for bright/major material, quarter for moody/minor */
@@ -338,7 +540,8 @@ export function scheduleTransition(
   plan: TransitionPlan,
   fromAnalysis: TrackAnalysis,
   toAnalysis: TrackAnalysis,
-  onDone: () => void
+  onDone: () => void,
+  onPhase: (phase: TransitionPhase) => void = () => {}
 ): ScheduledTransition {
   const ctx = engine.ctx;
   const fromDeck = engine.decks[plan.fromDeck];
@@ -435,6 +638,18 @@ export function scheduleTransition(
     ]);
   }
 
+  // ── phase emission for the HUD (authoritative — UI never infers this) ──
+  const ctxSwap = t0 + plan.swapBeat * bi;
+  const ctxDrop = t0 + (plan.liftAtTo - plan.startAtTo) / (plan.matchRate || 1);
+  const ctxEcho = plan.style === "ECHO_OUT" ? t0 + bi : t1 - 8 * bi;
+  after(t0, () => onPhase("BLENDING"));
+  if (plan.style === "ECHO_OUT") {
+    after(ctxEcho, () => onPhase("ECHO_OUT"));
+  } else {
+    after(ctxSwap, () => onPhase("BASS_SWAP"));
+    after(ctxEcho, () => onPhase("ECHO_OUT"));
+  }
+
   /* ── completion ─────────────────────────────────────────── */
   const endAt = plan.style === "ECHO_OUT" ? t0 + 10 * bi : t1;
   after(endAt + 0.08, () => {
@@ -444,9 +659,11 @@ export function scheduleTransition(
     if (plan.matchRate !== 1) {
       engine.rampRate(plan.toDeck, 1, 16 * toAnalysis.beatInterval);
     }
+    onPhase("COMPLETE");
     onDone();
   });
 
   const cancel = () => timers.forEach((t) => window.clearTimeout(t));
-  return { ...plan, ctxStart: t0, ctxEnd: endAt, cancel };
+  return { ...plan, ctxStart: t0, ctxSwap, ctxDrop, ctxEcho, ctxEnd: endAt, cancel };
 }
+

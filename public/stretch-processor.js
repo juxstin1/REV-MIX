@@ -5,9 +5,12 @@
  * Two render paths:
  *  - vinyl mode: plain variable-rate resampling (pitch follows tempo —
  *    used for brakes/spinbacks where the bend IS the effect)
- *  - master-tempo mode: granular overlap-add — 2048-frame Hann grains at
- *    50% hop spawn along a read head that advances at `rate`, each grain
- *    playing at unity pitch. COLA windowing keeps the sum flat.
+ *  - master-tempo mode: WSOLA — 2048-frame Hann grains at 50% hop spawn
+ *    along a read head that advances at `rate`, each grain playing at unity
+ *    pitch. Each new grain's start is waveform-aligned (cross-similarity
+ *    search) to the previous grain's natural continuation, so overlaps are
+ *    phase-coherent instead of comb-filtered — the difference between smooth
+ *    keylock and a robotic/metallic vocal.
  *
  * All control is via port messages; offsets/times in seconds.
  */
@@ -35,6 +38,11 @@ class StretchPlayer extends AudioWorkletProcessor {
     for (let i = 0; i < this.GRAIN; i++) {
       this.win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / this.GRAIN));
     }
+    // WSOLA alignment: search the new grain's start near the read head so it
+    // best matches the previous grain's continuation (waveform-similarity)
+    this.prevGrainStart = 0; // source frame the last grain started at
+    this.CORR = 256; // similarity window (frames)
+    this.SEEK = 256; // ± search radius (frames)
     this.fade = 128; // declick fade-in progress (128 = no fade pending)
     this.port.onmessage = (e) => this.onMsg(e.data);
   }
@@ -47,6 +55,7 @@ class StretchPlayer extends AudioWorkletProcessor {
         this.pos = 0;
         this.playing = false;
         this.grains = [];
+        this.prevGrainStart = 0;
         this.loopStart = this.loopEnd = -1;
         break;
       case "play":
@@ -59,6 +68,7 @@ class StretchPlayer extends AudioWorkletProcessor {
         }
         this.grains = [];
         this.sinceGrain = 1e9;
+        this.prevGrainStart = Math.floor(this.pos);
         this.fade = 0;
         break;
       case "stop":
@@ -69,6 +79,7 @@ class StretchPlayer extends AudioWorkletProcessor {
         this.pos = m.offset * sampleRate;
         this.grains = [];
         this.sinceGrain = 1e9;
+        this.prevGrainStart = Math.floor(this.pos);
         this.fade = 0;
         break;
       case "rate": {
@@ -95,9 +106,40 @@ class StretchPlayer extends AudioWorkletProcessor {
         this.preserve = m.preserve;
         this.grains = [];
         this.sinceGrain = 1e9;
+        this.prevGrainStart = Math.floor(this.pos);
         this.fade = 0;
         break;
     }
+  }
+
+  /**
+   * WSOLA: pick the start (near `naturalStart`, the analysis read head) whose
+   * leading CORR frames best match the previous grain's continuation, so the
+   * two grains overlap-add in phase. Minimises summed squared difference.
+   */
+  alignedStart(naturalStart) {
+    const ch = this.channels[0];
+    const tmpl = this.prevGrainStart + this.HOP; // where the last grain is heading
+    if (this.grains.length === 0 || tmpl < 0 || tmpl + this.CORR >= this.length) {
+      return naturalStart;
+    }
+    let bestK = 0;
+    let bestErr = Infinity;
+    for (let k = -this.SEEK; k <= this.SEEK; k++) {
+      const s = naturalStart + k;
+      if (s < 0 || s + this.CORR >= this.length) continue;
+      let err = 0;
+      for (let j = 0; j < this.CORR; j += 2) {
+        const diff = ch[s + j] - ch[tmpl + j];
+        err += diff * diff;
+        if (err >= bestErr) break; // early-out once we're worse than the best
+      }
+      if (err < bestErr) {
+        bestErr = err;
+        bestK = k;
+      }
+    }
+    return naturalStart + bestK;
   }
 
   wrap(p) {
@@ -158,7 +200,9 @@ class StretchPlayer extends AudioWorkletProcessor {
         this.preserve && Math.abs(this.rate - 1) > 0.004 && this.rate > 0.25;
       if (usePreserve) {
         if (this.sinceGrain >= this.HOP) {
-          this.grains.push({ start: Math.floor(this.pos), age: 0 });
+          const start = this.alignedStart(Math.floor(this.pos));
+          this.grains.push({ start, age: 0 });
+          this.prevGrainStart = start;
           this.sinceGrain = 0;
         }
         this.sinceGrain++;

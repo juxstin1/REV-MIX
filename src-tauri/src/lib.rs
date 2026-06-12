@@ -1,3 +1,5 @@
+mod midi;
+
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -168,10 +170,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(midi::MidiHub::default())
+        .setup(|app| {
+            midi::try_autoconnect(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             separate_vocals,
             load_library,
-            save_library
+            save_library,
+            midi::midi_inputs,
+            midi::midi_connect,
+            midi::midi_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

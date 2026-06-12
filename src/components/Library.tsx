@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LibraryData, LibTrack, SetEntry } from "../library";
+import { LibraryData, LibTrack, SetEntry, TransitionMoment } from "../library";
 
 interface LibraryProps {
   open: boolean;
@@ -16,6 +16,7 @@ interface LibraryProps {
   onClearSet: () => void;
   onLoadSet: (id: string) => void;
   onDeleteSet: (id: string) => void;
+  onDeleteMoment: (id: string) => void;
 }
 
 export function Library(props: LibraryProps) {
@@ -162,9 +163,58 @@ export function Library(props: LibraryProps) {
               </div>
             ))}
           </section>
+
+          <section className="lib-section">
+            <h3>★ GOOD MIXES</h3>
+            {lib.moments.filter((m) => m.verdict === "good").length === 0 && (
+              <p className="lib-empty mono">THUMBS-UP A FIRE MIX IN THE LAST-MIX BAR</p>
+            )}
+            {lib.moments
+              .filter((m) => m.verdict === "good")
+              .map((m) => (
+                <MomentRow key={m.id} m={m} onDelete={() => props.onDeleteMoment(m.id)} />
+              ))}
+          </section>
+
+          <section className="lib-section">
+            <h3>⚑ REVIEW MIXES</h3>
+            {lib.moments.filter((m) => m.verdict === "review").length === 0 && (
+              <p className="lib-empty mono">NOTHING FLAGGED — THUMBS-DOWN TAGS BAD MIXES HERE</p>
+            )}
+            {lib.moments
+              .filter((m) => m.verdict === "review")
+              .map((m) => (
+                <MomentRow key={m.id} m={m} onDelete={() => props.onDeleteMoment(m.id)} />
+              ))}
+          </section>
         </div>
       </aside>
     </>
+  );
+}
+
+function MomentRow({ m, onDelete }: { m: TransitionMoment; onDelete: () => void }) {
+  return (
+    <div className="lib-row moment-row">
+      <span className="lib-row-name">
+        {m.fromName} → {m.toName}
+        <em className="mono">
+          {m.style.replace("_", " ")} · {(m.confidence * 100) | 0}% · {m.outBpm.toFixed(0)}→
+          {m.inBpm.toFixed(0)} ({m.pitchShiftPct >= 0 ? "+" : ""}
+          {m.pitchShiftPct.toFixed(1)}%) · swap {m.bassSwapSec.toFixed(1)}s
+        </em>
+        {m.reasons.length > 0 && (
+          <span className="moment-reasons mono">
+            {m.reasons.map((r) => (
+              <i key={r}>{r}</i>
+            ))}
+          </span>
+        )}
+      </span>
+      <button className="lib-x" onClick={onDelete}>
+        ✕
+      </button>
+    </div>
   );
 }
 

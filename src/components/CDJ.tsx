@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { engine, DeckId } from "../audio/engine";
 import { LoadedTrack } from "../types";
+import { registerDeck, unregisterDeck, DeckControls, PadBank } from "../midi/deckControls";
 
 interface CDJProps {
   id: DeckId;
@@ -10,8 +11,6 @@ interface CDJProps {
   playing: boolean;
   getPosition: () => number;
 }
-
-type PadBank = "CUE" | "LOOP" | "FX";
 
 const LOOP_SIZES = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
@@ -28,18 +27,25 @@ interface FxPad {
   release: (id: DeckId, beat: number) => void;
 }
 
+// `beat` = seconds per beat, so 1/beat = ¼-note Hz, 2/beat = ⅛-note Hz.
 const FX_PADS: FxPad[] = [
   {
-    key: "twist",
-    label: "TWIST",
-    engage: (id) => engine.perfTwister(id, true),
-    release: (id) => engine.perfTwister(id, false),
+    key: "wub4",
+    label: "WUB ¼",
+    engage: (id, beat) => engine.perfWub(id, 1 / beat, true),
+    release: (id, beat) => engine.perfWub(id, 1 / beat, false),
   },
   {
-    key: "brake",
-    label: "V.BRAKE",
-    engage: (id) => engine.perfBrake(id, true),
-    release: (id) => engine.perfBrake(id, false),
+    key: "wub8",
+    label: "WUB ⅛",
+    engage: (id, beat) => engine.perfWub(id, 2 / beat, true),
+    release: (id, beat) => engine.perfWub(id, 2 / beat, false),
+  },
+  {
+    key: "gate",
+    label: "GATE",
+    engage: (id, beat) => engine.perfGate(id, 2 / beat, true),
+    release: (id, beat) => engine.perfGate(id, 2 / beat, false),
   },
   {
     key: "echo2",
@@ -48,36 +54,28 @@ const FX_PADS: FxPad[] = [
     release: (id, beat) => engine.perfEcho(id, beat, 0.5, false),
   },
   {
-    key: "echo4",
-    label: "ECHO ¼",
-    engage: (id, beat) => engine.perfEcho(id, beat, 0.25, true),
-    release: (id, beat) => engine.perfEcho(id, beat, 0.25, false),
-  },
-  {
     key: "verb",
     label: "REVERB",
     engage: (id) => engine.perfReverb(id, true),
     release: (id) => engine.perfReverb(id, false),
   },
   {
-    key: "unison",
-    label: "UNISON",
-    engage: (id) => engine.perfUnison(id, true),
-    release: (id) => engine.perfUnison(id, false),
+    key: "flange",
+    label: "FLANGER",
+    engage: (id) => engine.perfFlanger(id, true),
+    release: (id) => engine.perfFlanger(id, false),
   },
   {
-    key: "trem",
-    label: "TREM+",
-    // eighth-note chop at the track's tempo
-    engage: (id, beat) => engine.perfTremolo(id, 2 / beat, true),
-    release: (id, beat) => engine.perfTremolo(id, 2 / beat, false),
+    key: "brake",
+    label: "V.BRAKE",
+    engage: (id) => engine.perfBrake(id, true),
+    release: (id) => engine.perfBrake(id, false),
   },
   {
-    key: "tiptip",
-    label: "TIPTIP",
-    // 1/4-beat roll with declick envelopes — rhythmic, not abrasive
-    engage: (id, beat) => engine.perfStutter(id, beat / 4, true),
-    release: (id, beat) => engine.perfStutter(id, beat / 4, false),
+    key: "riser",
+    label: "RISER",
+    engage: (id, beat) => engine.perfRiser(id, beat, true),
+    release: (id, beat) => engine.perfRiser(id, beat, false),
   },
 ];
 
@@ -301,6 +299,47 @@ export function CDJ({ id, track, otherTrack, playing, getPosition }: CDJProps) {
       engine.setRate(id, bendBase.current);
     }
   };
+
+  /* ── expose these handlers to the MIDI layer (REV-5) ────────
+   * apiRef is refreshed every render so the registered dispatcher always
+   * calls the current closures (latest bank/cues/loop/fx state). */
+  const apiRef = useRef<DeckControls>(null!);
+  apiRef.current = {
+    setBank: (b: PadBank) => setBank(b),
+    padInBank: (b, i, pressed) => {
+      if (b !== bank) setBank(b); // keep the visible tab in sync with the pad
+      if (b === "CUE") {
+        if (pressed) cuePress(i);
+      } else if (b === "LOOP") {
+        if (pressed) loopPress(LOOP_SIZES[i]);
+      } else if (FX_PADS[i]) {
+        if (pressed) fxDown(FX_PADS[i]);
+        else fxUp(FX_PADS[i]);
+      }
+    },
+    autoLoop: () => loopPress(4),
+    loopHalve: () => {
+      if (loop) loopPress(Math.max(0.25, loop.beats / 2));
+    },
+    loopDouble: () => {
+      if (loop) loopPress(Math.min(32, loop.beats * 2));
+    },
+    sync: syncNow,
+    bend,
+  };
+  useEffect(() => {
+    const stable: DeckControls = {
+      setBank: (b) => apiRef.current.setBank(b),
+      padInBank: (b, i, p) => apiRef.current.padInBank(b, i, p),
+      autoLoop: () => apiRef.current.autoLoop(),
+      loopHalve: () => apiRef.current.loopHalve(),
+      loopDouble: () => apiRef.current.loopDouble(),
+      sync: () => apiRef.current.sync(),
+      bend: (d, o) => apiRef.current.bend(d, o),
+    };
+    registerDeck(id, stable);
+    return () => unregisterDeck(id);
+  }, [id]);
 
   return (
     <div className={`cdj cdj-${id.toLowerCase()}`}>
