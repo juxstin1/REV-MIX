@@ -30,13 +30,23 @@ export interface ChannelStrip {
   trem: GainNode;
   chorusDelay: DelayNode;
   chorusWet: GainNode;
+  /** CRUSH waveshaper, in series (transparent when curve = null) */
+  crush: WaveShaperNode;
+  /** FLANGER feedback tap around the chorus delay (0 = off) */
+  flangerFb: GainNode;
 }
 
 /** running performance-FX handles (LFOs, brake state, stutter timers) */
+type Lfo = { osc: OscillatorNode; depth: GainNode };
+
 interface PerfState {
-  twister?: { osc: OscillatorNode; depth: GainNode };
-  trem?: { osc: OscillatorNode; depth: GainNode };
-  chorus?: { osc: OscillatorNode; depth: GainNode };
+  twister?: Lfo;
+  trem?: Lfo;
+  chorus?: Lfo;
+  wub?: Lfo;
+  gate?: Lfo;
+  flanger?: Lfo;
+  riser?: { noise: AudioBufferSourceNode; gain: GainNode };
   brakePrevRate?: number;
   brakeRestoreTimer?: number;
   stutter?: { timer: number; pos: number; startedAt: number; slice: number };
@@ -166,16 +176,26 @@ export class MixerEngine {
     chorusDelay.delayTime.value = 0.018;
     const chorusWet = c.createGain();
     chorusWet.gain.value = 0;
+    const flangerFb = c.createGain();
+    flangerFb.gain.value = 0;
+
+    // CRUSH sits in series; curve = null is a clean passthrough
+    const crush = c.createWaveShaper();
+    crush.oversample = "2x";
 
     trim.connect(low);
     low.connect(mid);
     mid.connect(high);
     high.connect(filter);
-    filter.connect(trem);
+    filter.connect(crush);
+    crush.connect(trem);
     trem.connect(fader);
     trem.connect(chorusDelay);
     chorusDelay.connect(chorusWet);
     chorusWet.connect(fader);
+    // flanger feedback loop around the chorus delay (silent until engaged)
+    chorusDelay.connect(flangerFb);
+    flangerFb.connect(chorusDelay);
     fader.connect(analyser);
     analyser.connect(xfade);
     // sends tap the post-fader signal: cutting the fader leaves tails ringing
@@ -197,7 +217,7 @@ export class MixerEngine {
       strip: {
         trim, low, mid, high, filter, fader, xfade, analyser,
         delay, delayFb, delayWet, reverb, reverbWet,
-        trem, chorusDelay, chorusWet,
+        trem, chorusDelay, chorusWet, crush, flangerFb,
       },
       playing: false,
       startOffset: 0,
@@ -505,8 +525,14 @@ export class MixerEngine {
 
   /* ── performance FX (CDJ pads) — all momentary hold/release ─ */
 
-  private startLfo(target: AudioParam, freqHz: number, depth: number): { osc: OscillatorNode; depth: GainNode } {
+  private startLfo(
+    target: AudioParam,
+    freqHz: number,
+    depth: number,
+    type: OscillatorType = "sine"
+  ): Lfo {
     const osc = this.ctx.createOscillator();
+    osc.type = type;
     osc.frequency.value = freqHz;
     const g = this.ctx.createGain();
     g.gain.value = depth;
@@ -539,6 +565,108 @@ export class MixerEngine {
       this.stopLfo(p.twister);
       p.twister = undefined;
       s.filter.frequency.setTargetAtTime(22050, t, 0.06);
+    }
+  }
+
+  /** WUB — dubstep wobble: resonant lowpass with a beat-synced LFO sweeping
+   *  the cutoff. `rateHz` is one full wobble per call (¼-note, ⅛-note, …). */
+  perfWub(id: DeckId, rateHz: number, on: boolean) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    if (on && !p.wub) {
+      s.filter.type = "lowpass";
+      s.filter.Q.cancelScheduledValues(t);
+      s.filter.Q.setTargetAtTime(12, t, 0.02);
+      s.filter.frequency.cancelScheduledValues(t);
+      s.filter.frequency.setTargetAtTime(560, t, 0.02);
+      // triangle = smooth "waoo-waoo"; depth rides the cutoff 100..1000-ish
+      p.wub = this.startLfo(s.filter.frequency, rateHz, 460, "triangle");
+    } else if (!on && p.wub) {
+      this.stopLfo(p.wub);
+      p.wub = undefined;
+      s.filter.Q.setTargetAtTime(1.1, t, 0.05);
+      s.filter.frequency.setTargetAtTime(22050, t, 0.06);
+    }
+  }
+
+  /** GATE — hard trance gate: square-wave amplitude chop, full depth. */
+  perfGate(id: DeckId, rateHz: number, on: boolean) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    if (on && !p.gate) {
+      s.trem.gain.setTargetAtTime(0.5, t, 0.004);
+      p.gate = this.startLfo(s.trem.gain, rateHz, 0.5, "square");
+    } else if (!on && p.gate) {
+      this.stopLfo(p.gate);
+      p.gate = undefined;
+      s.trem.gain.setTargetAtTime(1, t, 0.02);
+    }
+  }
+
+  /** FLANGER — swept short delay with feedback (jet whoosh). */
+  perfFlanger(id: DeckId, on: boolean) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    if (on && !p.flanger) {
+      s.chorusDelay.delayTime.setTargetAtTime(0.005, t, 0.02);
+      s.flangerFb.gain.setTargetAtTime(0.72, t, 0.02);
+      s.chorusWet.gain.setTargetAtTime(0.6, t, 0.02);
+      p.flanger = this.startLfo(s.chorusDelay.delayTime, 0.22, 0.0042);
+    } else if (!on && p.flanger) {
+      this.stopLfo(p.flanger);
+      p.flanger = undefined;
+      s.flangerFb.gain.setTargetAtTime(0, t, 0.06);
+      s.chorusWet.gain.setTargetAtTime(0, t, 0.12);
+      s.chorusDelay.delayTime.setTargetAtTime(0.018, t, 0.06);
+    }
+  }
+
+  /** CRUSH — overdrive/grit via a tanh-ish waveshaper, in series. */
+  perfCrush(id: DeckId, on: boolean) {
+    const s = this.decks[id].strip;
+    s.crush.curve = on ? this.crushCurve() : null;
+  }
+
+  /** RISER — one-press uplifter: a band of noise sweeps up and swells over the
+   *  next few beats, then drops out. Self-contained; great for builds. */
+  perfRiser(id: DeckId, beatSec: number, on: boolean) {
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    if (on && !p.riser) {
+      const dur = beatSec * 8; // 8-beat build
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this.noiseBuffer();
+      noise.loop = true;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 1.3;
+      bp.frequency.setValueAtTime(280, t);
+      bp.frequency.exponentialRampToValueAtTime(9000, t + dur);
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.0008, t);
+      gain.gain.exponentialRampToValueAtTime(0.5, t + dur);
+      noise.connect(bp);
+      bp.connect(gain);
+      gain.connect(this.decks[id].strip.xfade);
+      noise.start();
+      p.riser = { noise, gain };
+    } else if (!on && p.riser) {
+      const { noise, gain } = p.riser;
+      p.riser = undefined;
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setTargetAtTime(0, t, 0.07);
+      window.setTimeout(() => {
+        try {
+          noise.stop();
+        } catch {
+          /* already stopped */
+        }
+        noise.disconnect();
+        gain.disconnect();
+      }, 320);
     }
   }
 
@@ -676,6 +804,33 @@ export class MixerEngine {
   }
 
   private irCache: Partial<Record<"bright" | "dark", AudioBuffer>> = {};
+
+  private noiseBuf?: AudioBuffer;
+  /** cached 2-second white-noise loop for risers */
+  private noiseBuffer(): AudioBuffer {
+    if (this.noiseBuf) return this.noiseBuf;
+    const rate = this.ctx.sampleRate;
+    const buf = this.ctx.createBuffer(1, rate * 2, rate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    this.noiseBuf = buf;
+    return buf;
+  }
+
+  private crushCurveCache?: Float32Array;
+  /** soft-clip (tanh) drive curve for CRUSH */
+  private crushCurve(): Float32Array {
+    if (this.crushCurveCache) return this.crushCurveCache;
+    const n = 1024;
+    const curve = new Float32Array(n);
+    const k = 9; // drive
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(k * x);
+    }
+    this.crushCurveCache = curve;
+    return curve;
+  }
 
   private impulseResponse(character: "bright" | "dark"): AudioBuffer {
     const cached = this.irCache[character];

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { engine, DeckId } from "../audio/engine";
+import { StripState } from "../types";
 import { Knob } from "./Knob";
 import { Fader } from "./Fader";
 import { Crossfader } from "./Crossfader";
@@ -8,50 +9,18 @@ import { VUMeter } from "./VUMeter";
 interface MixerProps {
   xfade: number;
   onXfade: (v: number) => void;
+  strips: Record<DeckId, StripState>;
+  onStripChange: (id: DeckId, k: keyof StripState, v: number) => void;
 }
-
-interface StripState {
-  trim: number;
-  high: number;
-  mid: number;
-  low: number;
-  filter: number;
-  fader: number;
-}
-
-const initialStrip: StripState = { trim: 0.5, high: 0.5, mid: 0.5, low: 0.5, filter: 0.5, fader: 1 };
 
 /**
  * The console — a two-channel club mixer rendered as 3D hardware:
  * brushed faceplate in perspective, rotary pots, LED meters,
- * line faders and a crossfader.
+ * line faders and a crossfader. Pot/fader state is owned by App so the
+ * MIDI controller and these on-screen controls stay in lock-step.
  */
-export function Mixer({ xfade, onXfade }: MixerProps) {
-  const [strips, setStrips] = useState<Record<DeckId, StripState>>({
-    A: { ...initialStrip },
-    B: { ...initialStrip },
-  });
+export function Mixer({ xfade, onXfade, strips, onStripChange: update }: MixerProps) {
   const [master, setMaster] = useState(0.75);
-
-  const update = useCallback((id: DeckId, k: keyof StripState, v: number) => {
-    setStrips((s) => ({ ...s, [id]: { ...s[id], [k]: v } }));
-    switch (k) {
-      case "trim":
-        engine.setTrim(id, v);
-        break;
-      case "high":
-      case "mid":
-      case "low":
-        engine.setEq(id, k, v);
-        break;
-      case "filter":
-        engine.setFilter(id, v);
-        break;
-      case "fader":
-        engine.setFader(id, v);
-        break;
-    }
-  }, []);
 
   const meterBufs = useMemo(
     () => ({
@@ -112,9 +81,9 @@ function ChannelStrip({
       </span>
       <Knob label="TRIM" value={strip.trim} onChange={(v) => onChange(id, "trim", v)} centerDetent size={42} />
       <div className="strip-eq">
-        <Knob label="HI" value={strip.high} onChange={(v) => onChange(id, "high", v)} centerDetent size={42} />
-        <Knob label="MID" value={strip.mid} onChange={(v) => onChange(id, "mid", v)} centerDetent size={42} />
-        <Knob label="LOW" value={strip.low} onChange={(v) => onChange(id, "low", v)} centerDetent size={42} />
+        <Knob label="HI" value={strip.high} onChange={(v) => onChange(id, "high", v)} centerDetent size={42} labelTop />
+        <Knob label="MID" value={strip.mid} onChange={(v) => onChange(id, "mid", v)} centerDetent size={42} labelTop />
+        <Knob label="LOW" value={strip.low} onChange={(v) => onChange(id, "low", v)} centerDetent size={42} labelTop />
       </div>
       <Knob label="FILTER" value={strip.filter} onChange={(v) => onChange(id, "filter", v)} centerDetent size={50} />
       <div className="strip-bottom">

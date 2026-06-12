@@ -1,18 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { engine, DeckId } from "./audio/engine";
 import { analyseTrack, TrackAnalysis } from "./audio/analysis";
 import { separateVocals, vocalCurve } from "./audio/vocals";
-import { planTransition, scheduleTransition, ScheduledTransition, TransitionPlan } from "./audio/automix";
-import { LoadedTrack } from "./types";
+import {
+  planTransition,
+  scheduleTransition,
+  ScheduledTransition,
+  TransitionPlan,
+  TransitionHud,
+  TransitionPhase,
+  TransitionStyle,
+  TransitionTelemetry,
+  hudFromPlan,
+  telemetryFromSched,
+  transitionRisk,
+} from "./audio/automix";
+import { LoadedTrack, StripState, initialStrip } from "./types";
 import { Deck } from "./components/Deck";
 import { Mixer } from "./components/Mixer";
 import { Library } from "./components/Library";
 import { Sequencer } from "./components/Sequencer";
+import { MidiPanel } from "./components/MidiPanel";
+import { LastMixBar } from "./components/LastMixBar";
+import { useMidi } from "./midi/useMidi";
+import { MidiTargets } from "./midi/actions";
+import { deckControls } from "./midi/deckControls";
 import {
   LibraryData,
   SetEntry,
+  TransitionMoment,
   emptyLibrary,
   loadLibrary,
   saveLibrary,
@@ -31,6 +49,10 @@ export default function App() {
   const [automix, setAutomix] = useState(false);
   const [xfade, setXfadeState] = useState(0.5);
   const [plan, setPlan] = useState<TransitionPlan | null>(null);
+  const [hud, setHud] = useState<TransitionHud | null>(null);
+  type LastMix = TransitionTelemetry & { fromName: string; toName: string; seq: number };
+  const [lastMix, setLastMix] = useState<LastMix | null>(null);
+  const mixSeqRef = useRef(0);
   const [status, setStatus] = useState("LOAD A TRACK TO BEGIN");
   const scheduled = useRef<ScheduledTransition | null>(null);
   const xfadeAnim = useRef(0);
@@ -40,6 +62,33 @@ export default function App() {
   const [libOpen, setLibOpen] = useState(false);
   const [setLog, setSetLog] = useState<SetEntry[]>([]);
   const [view, setView] = useState<"decks" | "seq">("decks");
+  const [midiOpen, setMidiOpen] = useState(false);
+
+  /* ── mixer strip state (lifted so MIDI ↔ on-screen pots stay in sync) ── */
+  const [strips, setStrips] = useState<Record<DeckId, StripState>>({
+    A: { ...initialStrip },
+    B: { ...initialStrip },
+  });
+  const updateStrip = useCallback((id: DeckId, k: keyof StripState, v: number) => {
+    setStrips((s) => ({ ...s, [id]: { ...s[id], [k]: v } }));
+    switch (k) {
+      case "trim":
+        engine.setTrim(id, v);
+        break;
+      case "high":
+      case "mid":
+      case "low":
+        engine.setEq(id, k, v);
+        break;
+      case "filter":
+        engine.setFilter(id, v);
+        break;
+      case "fader":
+        engine.setFader(id, v);
+        break;
+    }
+  }, []);
+
   const libLoaded = useRef(false);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
@@ -268,28 +317,58 @@ export default function App() {
 
   const fireTransition = useCallback(
     (p: TransitionPlan, fromAnalysis: TrackAnalysis, toAnalysis: TrackAnalysis) => {
-      const sched = scheduleTransition(engine, p, fromAnalysis, toAnalysis, () => {
-        scheduled.current = null;
-        setPlan(null);
-        setPlaying((pl) => ({ ...pl, [p.fromDeck]: false, [p.toDeck]: true }));
-        setActiveDeck(p.toDeck);
-        // set recording: log the incoming track with how it was mixed in
-        const incoming = tracksRef.current[p.toDeck];
-        if (incoming) {
-          setSetLog((log) => [
-            ...log,
-            {
-              path: incoming.path,
-              name: incoming.name,
-              transition: { style: p.style, beats: p.beats, score: p.score },
-            },
-          ]);
-        }
-        // outgoing deck is now free — clear it so the queue effect refills it
-        setTracks((t) => ({ ...t, [p.fromDeck]: null }));
-        setStatus(`NOW ON DECK ${p.toDeck}`);
-      });
+      const onPhase = (phase: TransitionPhase) =>
+        setHud((h) => (h ? { ...h, phase } : h));
+      const sched = scheduleTransition(
+        engine,
+        p,
+        fromAnalysis,
+        toAnalysis,
+        () => {
+          scheduled.current = null;
+          setPlan(null);
+          setPlaying((pl) => ({ ...pl, [p.fromDeck]: false, [p.toDeck]: true }));
+          setActiveDeck(p.toDeck);
+          // set recording: log the incoming track with how it was mixed in
+          const incoming = tracksRef.current[p.toDeck];
+          if (incoming) {
+            setSetLog((log) => [
+              ...log,
+              {
+                path: incoming.path,
+                name: incoming.name,
+                transition: { style: p.style, beats: p.beats, score: p.score },
+              },
+            ]);
+          }
+          // outgoing deck is now free — clear it so the queue effect refills it
+          setTracks((t) => ({ ...t, [p.fromDeck]: null }));
+          setStatus(`NOW ON DECK ${p.toDeck}`);
+          // leave the COMPLETE badge up briefly, then clear the HUD
+          window.setTimeout(() => setHud(null), 2600);
+        },
+        onPhase
+      );
       scheduled.current = sched;
+      // flight recorder: capture what actually happened, so a fire mix can be
+      // bookmarked or repeated
+      setLastMix({
+        ...telemetryFromSched(sched, fromAnalysis.bpm, toAnalysis.bpm),
+        fromName: tracksRef.current[p.fromDeck]?.name ?? "—",
+        toName: tracksRef.current[p.toDeck]?.name ?? "—",
+        seq: ++mixSeqRef.current,
+      });
+      // HUD goes live with the real scheduled times; phase advances via onPhase
+      setHud(
+        hudFromPlan(p, {
+          active: true,
+          phase: "ARMING",
+          mixInAt: sched.ctxStart,
+          bassSwapAt: sched.ctxSwap,
+          dropAt: sched.ctxDrop,
+          mixOutAt: sched.ctxEnd,
+        })
+      );
       setPlaying((pl) => ({ ...pl, [p.toDeck]: true }));
       const leadMs = Math.max(0, (sched.ctxStart - engine.ctx.currentTime) * 1000);
       const uiDurMs = (sched.ctxEnd - sched.ctxStart) * 1000;
@@ -316,6 +395,21 @@ export default function App() {
       const p = planTransition(activeDeck, from.analysis, to.analysis, pos);
       setPlan(p);
 
+      // preview HUD: project the plan's times into ctx-time for the countdown
+      const rate = engine.decks[activeDeck].rate || 1;
+      const bi = p.seconds / p.beats;
+      const mixInAt = engine.ctx.currentTime + Math.max(0, (p.startAtFrom - pos) / rate);
+      setHud(
+        hudFromPlan(p, {
+          active: false,
+          phase: "ARMING",
+          mixInAt,
+          bassSwapAt: mixInAt + p.swapBeat * bi,
+          dropAt: mixInAt + (p.liftAtTo - p.startAtTo) / (p.matchRate || 1),
+          mixOutAt: mixInAt + p.seconds,
+        })
+      );
+
       // arm the schedule once we're within 10 s of the blend start
       if (p.startAtFrom - pos < 10 && p.startAtFrom > pos) {
         fireTransition(p, from.analysis, to.analysis);
@@ -331,6 +425,12 @@ export default function App() {
     }, 1000);
     return () => clearInterval(iv);
   }, [automix, tracks, activeDeck, fireTransition]);
+
+  // drop the HUD when automix is off and nothing is firing (manual transitions
+  // manage their own HUD lifecycle in fireTransition)
+  useEffect(() => {
+    if (!automix && !scheduled.current) setHud(null);
+  }, [automix]);
 
   const mixNow = useCallback(() => {
     if (scheduled.current) return;
@@ -350,11 +450,109 @@ export default function App() {
     fireTransition(p, from.analysis, to.analysis);
   }, [tracks, activeDeck, fireTransition]);
 
+  /** re-arm a transition now, forcing the last mix's STYLE — "do that again" */
+  const replayLast = useCallback(
+    (style: TransitionStyle) => {
+      if (scheduled.current) return;
+      const from = tracks[activeDeck];
+      const toDeck: DeckId = activeDeck === "A" ? "B" : "A";
+      const to = tracks[toDeck];
+      if (!from?.analysis || !to?.analysis) {
+        setStatus("BOTH DECKS NEED ANALYSED TRACKS");
+        return;
+      }
+      if (!engine.decks[activeDeck].playing) {
+        setStatus("PLAY THE ACTIVE DECK FIRST");
+        return;
+      }
+      const p = planTransition(activeDeck, from.analysis, to.analysis, engine.position(activeDeck), true, style);
+      setPlan(p);
+      fireTransition(p, from.analysis, to.analysis);
+      setStatus(`REPLAY · ${style.replace("_", " ")}`);
+    },
+    [tracks, activeDeck, fireTransition]
+  );
+
+  /** label the last transition 👍/👎 and file it to the library */
+  const rateMix = useCallback(
+    (verdict: "good" | "review", reasons: string[]) => {
+      if (!lastMix) return;
+      const moment: TransitionMoment = {
+        id: newId(),
+        savedAt: Date.now(),
+        verdict,
+        reasons,
+        risk: transitionRisk(lastMix),
+        fromName: lastMix.fromName,
+        toName: lastMix.toName,
+        style: lastMix.style,
+        profile: lastMix.profile,
+        outBpm: lastMix.outBpm,
+        inBpm: lastMix.inBpm,
+        pitchShiftPct: lastMix.pitchShiftPct,
+        confidence: lastMix.confidence,
+        beats: lastMix.beats,
+        vocalClash: lastMix.vocalClash,
+        bassSwapSec: lastMix.bassSwapSec,
+        mixOutSec: lastMix.mixOutSec,
+      };
+      setLib((l) => ({ ...l, moments: [moment, ...l.moments] }));
+      setStatus(
+        `${verdict === "good" ? "★ GOOD MIX" : "⚑ REVIEW"} · ${lastMix.style.replace("_", " ")}${
+          reasons.length ? " · " + reasons.join(", ") : ""
+        }`
+      );
+    },
+    [lastMix]
+  );
+
   const setXfade = useCallback((v: number) => {
     cancelAnimationFrame(xfadeAnim.current);
     setXfadeState(v);
     engine.setCrossfader(v);
   }, []);
+
+  /* ── MIDI controller (DDJ-REV5) ─────────────────────────── */
+
+  // guards a single native file-open dialog from being opened many times over
+  // (a MIDI trigger could otherwise stack dialogs)
+  const midiLoading = useRef(false);
+
+  const midiTargets = useMemo<MidiTargets>(
+    () => ({
+      playPause: (d) => playPause(d),
+      cue: (d) => {
+        engine.seek(d, 0);
+        setActiveDeck(d);
+      },
+      setVolume: (d, v) => updateStrip(d, "fader", v),
+      setTrim: (d, v) => updateStrip(d, "trim", v),
+      setEq: (d, band, v) => updateStrip(d, band, v),
+      setFilter: (d, v) => updateStrip(d, "filter", v),
+      setRate: (d, rate) => engine.setRate(d, rate),
+      setCrossfader: (v) => setXfade(v),
+      nudge: (d, dir) => engine.nudgePhase(d, dir * 0.004, 0.2),
+      loadDeck: (d) => {
+        if (midiLoading.current) return;
+        midiLoading.current = true;
+        void Promise.resolve(loadDeckManual(d)).finally(() => {
+          midiLoading.current = false;
+        });
+      },
+      mixNow: () => mixNow(),
+      toggleAutomix: () => setAutomix((a) => !a),
+      // deck performance — drive the existing CDJ controls for that deck
+      setBank: (d, bank) => deckControls(d)?.setBank(bank),
+      padInBank: (d, bank, i, pressed) => deckControls(d)?.padInBank(bank, i, pressed),
+      autoLoop: (d) => deckControls(d)?.autoLoop(),
+      loopHalve: (d) => deckControls(d)?.loopHalve(),
+      loopDouble: (d) => deckControls(d)?.loopDouble(),
+      sync: (d) => deckControls(d)?.sync(),
+    }),
+    [playPause, setXfade, loadDeckManual, mixNow, updateStrip]
+  );
+
+  const midi = useMidi(midiTargets, midiOpen);
 
   /* ── library handlers ───────────────────────────────────── */
 
@@ -442,6 +640,10 @@ export default function App() {
     setLib((l) => ({ ...l, patterns: l.patterns.filter((p) => p.id !== id) }));
   }, []);
 
+  const libDeleteMoment = useCallback((id: string) => {
+    setLib((l) => ({ ...l, moments: l.moments.filter((m) => m.id !== id) }));
+  }, []);
+
   /* ── render ─────────────────────────────────────────────── */
 
   const markersFor = (deck: DeckId): { t: number; label: string }[] => {
@@ -471,6 +673,13 @@ export default function App() {
           </button>
           <button className="lib-toggle" onClick={() => setLibOpen((o) => !o)}>
             LIBRARY
+          </button>
+          <button
+            className={`lib-toggle${midi.port ? " active" : ""}`}
+            onClick={() => setMidiOpen((o) => !o)}
+            title={midi.port ? `MIDI: ${midi.port}` : "MIDI not linked"}
+          >
+            MIDI{midi.port ? " ●" : ""}
           </button>
           <button className={`automix-toggle${automix ? " on" : ""}`} onClick={() => setAutomix((a) => !a)}>
             <i className="led" />
@@ -505,9 +714,10 @@ export default function App() {
           onSeek={(t) => engine.seek("A", t)}
           onLoad={() => loadDeckManual("A")}
           markers={markersFor("A")}
+          hud={hud}
         />
 
-        <Mixer xfade={xfade} onXfade={setXfade} />
+        <Mixer xfade={xfade} onXfade={setXfade} strips={strips} onStripChange={updateStrip} />
 
         <Deck
           id="B"
@@ -520,6 +730,7 @@ export default function App() {
           onSeek={(t) => engine.seek("B", t)}
           onLoad={() => loadDeckManual("B")}
           markers={markersFor("B")}
+          hud={hud}
         />
       </main>
 
@@ -549,6 +760,21 @@ export default function App() {
             {plan.notes.join(" · ")}
           </div>
         )}
+        {lastMix && (
+          <LastMixBar
+            key={lastMix.seq}
+            mix={lastMix}
+            risk={transitionRisk(lastMix)}
+            onRate={rateMix}
+            onReplay={() => replayLast(lastMix.style)}
+            replayDisabled={
+              !!scheduled.current ||
+              !tracks[activeDeck]?.analysis ||
+              !tracks[activeDeck === "A" ? "B" : "A"]?.analysis ||
+              !playing[activeDeck]
+            }
+          />
+        )}
       </footer>
 
       <Library
@@ -566,7 +792,10 @@ export default function App() {
         onClearSet={() => setSetLog([])}
         onLoadSet={libLoadSet}
         onDeleteSet={libDeleteSet}
+        onDeleteMoment={libDeleteMoment}
       />
+
+      <MidiPanel open={midiOpen} onClose={() => setMidiOpen(false)} midi={midi} />
     </div>
   );
 }

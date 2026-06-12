@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { LoadedTrack } from "../types";
+import { TransitionHud as HudState } from "../audio/automix";
 import { Waveform } from "./Waveform";
+import { TransitionHud } from "./TransitionHud";
 import { CDJ } from "./CDJ";
 
 interface DeckProps {
@@ -14,6 +16,8 @@ interface DeckProps {
   onSeek: (t: number) => void;
   onLoad: () => void;
   markers?: { t: number; label: string }[];
+  /** live auto-mix HUD (shown when this deck is part of the transition) */
+  hud?: HudState | null;
 }
 
 function fmtTime(s: number): string {
@@ -23,8 +27,9 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-export function Deck({ id, track, otherTrack, playing, active, getPosition, onPlayPause, onSeek, onLoad, markers }: DeckProps) {
+export function Deck({ id, track, otherTrack, playing, active, getPosition, onPlayPause, onSeek, onLoad, markers, hud }: DeckProps) {
   const a = track?.analysis ?? null;
+  const deckHud = hud && (hud.fromDeck === id || hud.toDeck === id) ? hud : null;
   return (
     <section className={`deck deck-${id.toLowerCase()}${active ? " active" : ""}`}>
       <header className="deck-head">
@@ -65,6 +70,8 @@ export function Deck({ id, track, otherTrack, playing, active, getPosition, onPl
         color={id === "A" ? "#c8ff3d" : "#5dd8ff"}
         markers={markers}
       />
+
+      {deckHud && <TransitionHud hud={deckHud} role={deckHud.toDeck === id ? "IN" : "OUT"} />}
 
       <footer className="deck-foot">
         <button className={`deck-play${playing ? " playing" : ""}`} onClick={onPlayPause} disabled={!track}>

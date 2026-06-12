@@ -8,6 +8,8 @@ interface KnobProps {
   centerDetent?: boolean;
   size?: number;
   accent?: string;
+  /** render the label above the dial instead of below */
+  labelTop?: boolean;
 }
 
 /**
@@ -15,7 +17,7 @@ interface KnobProps {
  * reset. Sweep is 270° like real mixer pots, with a glowing position
  * indicator and machined-metal cap.
  */
-export function Knob({ label, value, onChange, centerDetent = false, size = 54, accent }: KnobProps) {
+export function Knob({ label, value, onChange, centerDetent = false, size = 54, accent, labelTop = false }: KnobProps) {
   const [dragging, setDragging] = useState(false);
   const drag = useRef({ startY: 0, startV: 0 });
 
@@ -51,7 +53,7 @@ export function Knob({ label, value, onChange, centerDetent = false, size = 54, 
   const atCenter = centerDetent && Math.abs(value - 0.5) < 0.001;
 
   return (
-    <div className="knob-unit" style={accent ? ({ "--knob-accent": accent } as React.CSSProperties) : undefined}>
+    <div className={`knob-unit${labelTop ? " label-top" : ""}`} style={accent ? ({ "--knob-accent": accent } as React.CSSProperties) : undefined}>
       <div className="knob-ring">
         {/* tick marks around the sweep */}
         {Array.from({ length: 11 }, (_, i) => (

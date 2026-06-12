@@ -45,14 +45,46 @@ export interface SeqPattern {
   steps: number[][];
 }
 
+/** A labelled transition — telemetry plus the user's verdict. "good" mixes are
+ *  what works; "review" mixes carry reason chips explaining what went wrong, so
+ *  the automix scorer can learn the decision rules later. */
+export interface TransitionMoment {
+  id: string;
+  savedAt: number;
+  verdict: "good" | "review";
+  /** user-picked reasons (review only) */
+  reasons: string[];
+  /** system auto-risk flags at fire time */
+  risk: string[];
+  fromName: string;
+  toName: string;
+  style: string;
+  profile: string;
+  outBpm: number;
+  inBpm: number;
+  pitchShiftPct: number;
+  confidence: number;
+  beats: number;
+  vocalClash: number;
+  bassSwapSec: number;
+  mixOutSec: number;
+}
+
 export interface LibraryData {
   tracks: LibTrack[];
   playlists: Playlist[];
   sets: SavedSet[];
   patterns: SeqPattern[];
+  moments: TransitionMoment[];
 }
 
-export const emptyLibrary = (): LibraryData => ({ tracks: [], playlists: [], sets: [], patterns: [] });
+export const emptyLibrary = (): LibraryData => ({
+  tracks: [],
+  playlists: [],
+  sets: [],
+  patterns: [],
+  moments: [],
+});
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -68,6 +100,7 @@ export async function loadLibrary(): Promise<LibraryData> {
       playlists: Array.isArray(d.playlists) ? d.playlists : [],
       sets: Array.isArray(d.sets) ? d.sets : [],
       patterns: Array.isArray(d.patterns) ? d.patterns : [],
+      moments: Array.isArray(d.moments) ? d.moments : [],
     };
   } catch {
     return emptyLibrary();

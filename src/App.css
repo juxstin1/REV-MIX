@@ -287,10 +287,255 @@ body {
 
 .waveform {
   position: relative;
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #07090500 0%, #0a0d07 100%), #060803;
+  border: 1px solid var(--line-hot);
+  border-radius: 4px;
   cursor: crosshair;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 2px 14px rgba(0, 0, 0, 0.55);
+}
+
+/* ── last-mix review bar ────────────────────────────────── */
+.lastmix {
+  margin-top: 6px;
+  padding: 7px 12px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+  background: rgba(200, 255, 61, 0.04);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--acid);
+  border-radius: 3px;
+}
+.lastmix.risky {
+  background: rgba(255, 94, 94, 0.06);
+  border-left-color: var(--danger);
+}
+.lastmix-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lastmix-tag {
+  color: var(--acid);
+  letter-spacing: 0.16em;
+  font-weight: 700;
+}
+.lastmix.risky .lastmix-tag {
+  color: var(--danger);
+}
+.lastmix-style {
+  color: var(--ink);
+  letter-spacing: 0.08em;
+}
+.lastmix-conf {
+  color: var(--acid);
+  font-weight: 700;
+}
+.lastmix-risk {
+  color: var(--danger);
+  border: 1px solid rgba(255, 94, 94, 0.4);
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+.lastmix-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lastmix-btn {
+  background: var(--metal-hi);
+  border: 1px solid var(--line-hot);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.lastmix-btn:hover {
+  border-color: var(--acid);
+  color: var(--acid);
+}
+.lastmix-btn.good:hover {
+  border-color: var(--acid);
+}
+.lastmix-btn.bad:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.lastmix-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.lastmix-saved {
+  color: var(--acid);
+  letter-spacing: 0.1em;
+}
+
+.lastmix-review {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+.lastmix-review-q {
+  color: var(--ink-dim);
+  letter-spacing: 0.12em;
+  margin-right: 4px;
+}
+.reason-chip {
+  background: transparent;
+  border: 1px solid var(--line-hot);
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.reason-chip:hover {
+  color: var(--ink);
+}
+.reason-chip.on {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #0b0d09;
+  font-weight: 700;
+}
+
+.moment-row em {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-dim);
+}
+.moment-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.moment-reasons i {
+  font-style: normal;
+  font-size: 8px;
+  color: var(--danger);
+  border: 1px solid rgba(255, 94, 94, 0.35);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+/* ── Auto DJ transition HUD ─────────────────────────────── */
+.hud {
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: linear-gradient(180deg, rgba(20, 24, 15, 0.9), rgba(10, 13, 7, 0.9));
+  border: 1px solid var(--line-hot);
+  border-left: 2px solid var(--ink-dim);
+  border-radius: 4px;
+  display: grid;
+  gap: 4px;
+}
+.hud.active {
+  border-left-color: var(--acid);
+  box-shadow: inset 0 0 22px -10px var(--acid);
+}
+.hud.hud-bass_swap.active {
+  border-left-color: var(--ice);
+}
+.hud.hud-echo_out.active {
+  border-left-color: #ff8c5e;
+}
+.hud.hud-complete {
+  border-left-color: var(--acid-dark);
+  opacity: 0.8;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.hud-brand {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--acid);
+}
+.hud-role {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.hud-role.role-in {
+  color: var(--ice);
+}
+.hud-role.role-out {
+  color: var(--ink-dim);
+}
+
+.hud-style {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.hud-conf {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--acid);
+}
+
+.hud-scores {
+  display: flex;
+  gap: 12px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+.hud-scores em {
+  font-style: normal;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.hud-row {
+  font-size: 9px;
+}
+.hud-vox {
+  color: var(--acid-dark);
+  letter-spacing: 0.1em;
+}
+.hud-vox.clash {
+  color: var(--danger);
+}
+
+.hud-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+  font-size: 10px;
+}
+.hud-phase {
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  font-weight: 700;
+}
+.hud-count {
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+}
+.hud-count em {
+  font-style: normal;
+  color: var(--acid);
+  font-weight: 700;
 }
 
 .deck-foot {
@@ -496,6 +741,11 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 5px;
+}
+
+/* label above the dial */
+.knob-unit.label-top {
+  flex-direction: column-reverse;
 }
 
 .knob-ring {
@@ -1690,4 +1940,331 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ── MIDI panel ─────────────────────────────────────────── */
+.midi-drawer {
+  position: fixed;
+  z-index: 41;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raise);
+  border-left: 1px solid var(--line-hot);
+  box-shadow: -24px 0 64px rgba(0, 0, 0, 0.5);
+  animation: midi-in 0.18s ease both;
+}
+
+@keyframes midi-in {
+  from { transform: translateX(30px); opacity: 0; }
+}
+
+.midi-conn {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.midi-conn-row {
+  display: flex;
+  gap: 6px;
+}
+
+.midi-select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 9px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  outline: none;
+}
+
+.midi-btn {
+  background: var(--metal-hi);
+  border: 1px solid var(--line-hot);
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.midi-btn:hover {
+  color: var(--ink);
+  border-color: var(--acid-dark);
+}
+
+.midi-btn.hot {
+  color: var(--acid);
+  border-color: var(--acid-dark);
+}
+
+.midi-btn.sm {
+  padding: 4px 7px;
+  font-size: 9px;
+}
+
+.midi-btn.ghost {
+  background: transparent;
+}
+
+.midi-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.midi-err {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.midi-hint {
+  margin-top: 8px;
+  color: var(--ink-dim);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.midi-monitor {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.midi-monitor-last {
+  font-size: 16px;
+  color: var(--acid);
+  letter-spacing: 0.06em;
+}
+
+.midi-monitor-log {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-height: 46px;
+  overflow: hidden;
+}
+
+.midi-monitor-log span {
+  font-size: 9px;
+  color: var(--ink-faint);
+}
+
+.midi-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+}
+
+.midi-section {
+  margin-top: 14px;
+}
+
+.midi-section h3 {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.midi-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+}
+
+.midi-row-label {
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.midi-row-bind {
+  font-size: 9px;
+  color: var(--ice);
+  min-width: 78px;
+  text-align: right;
+}
+
+.midi-row.learning {
+  background: rgba(200, 255, 61, 0.06);
+}
+
+.midi-row.learning .midi-row-bind {
+  color: var(--acid);
+}
+
+.midi-foot {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.midi-howto {
+  margin: 10px 0 4px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-hot);
+  border-left: 2px solid var(--acid);
+  background: rgba(200, 255, 61, 0.05);
+  line-height: 1.55;
+}
+
+/* dedicated pad-bank switch mapper */
+.midi-banks {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.midi-banks h3 {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+  margin-bottom: 9px;
+}
+
+.midi-bankrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.midi-bankrow-tag {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  width: 46px;
+  flex: none;
+}
+.midi-bankrow-tag.deck-a {
+  color: var(--acid);
+}
+.midi-bankrow-tag.deck-b {
+  color: var(--ice);
+}
+
+.midi-banktabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  flex: 1;
+}
+
+.midi-banktab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 4px;
+  background: var(--metal-lo);
+  border: 1px solid var(--line-hot);
+  color: var(--ink);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.midi-banktab span {
+  font-weight: 700;
+}
+
+.midi-banktab em {
+  font-size: 8px;
+  color: var(--ink-dim);
+  font-style: normal;
+  letter-spacing: 0.02em;
+}
+
+.midi-banktab:hover {
+  border-color: var(--acid-dark);
+}
+
+.midi-banktab.bound {
+  border-color: var(--acid-dark);
+}
+.midi-banktab.bound em {
+  color: var(--ice);
+}
+
+.midi-banktab.learning {
+  background: var(--acid);
+  border-color: var(--acid);
+  color: #0b0d09;
+}
+.midi-banktab.learning em {
+  color: #0b0d09;
+}
+
+.midi-section h3.deck-a {
+  color: var(--acid);
+}
+.midi-section h3.deck-b {
+  color: var(--ice);
+}
+
+/* performance pad rows + chips */
+.midi-padrow {
+  margin: 8px 0 10px;
+}
+
+.midi-padrow-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.midi-padrow-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  flex: 1;
+}
+
+.midi-padrow-count {
+  font-size: 9px;
+  color: var(--ink-dim);
+}
+
+.midi-padchips {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.midi-padchip {
+  aspect-ratio: 1;
+  background: var(--metal-lo);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.midi-padchip:hover {
+  border-color: var(--acid-dark);
+  color: var(--ink);
+}
+
+.midi-padchip.set {
+  border-color: var(--acid-dark);
+  color: var(--acid);
+}
+
+.midi-padchip.learning {
+  background: var(--acid);
+  border-color: var(--acid);
+  color: #0b0d09;
 }
