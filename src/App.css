@@ -1691,3 +1691,490 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── XY FX pad (Kaoss-style) ─────────────────── */
+.xy-pad {
+  width: 100%;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--metal-hi), var(--metal-lo));
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.xy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.xy-title {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--ink-dim);
+}
+
+.xy-target {
+  display: flex;
+  gap: 4px;
+}
+
+.xy-tbtn {
+  width: 22px;
+  height: 18px;
+  font-size: 10px;
+  color: var(--ink-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.xy-tbtn.on {
+  color: #0b0d09;
+  background: var(--xy-accent);
+  border-color: var(--xy-accent);
+  box-shadow: 0 0 6px var(--xy-accent);
+}
+
+.xy-stage {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  grid-template-rows: 1fr 12px;
+  gap: 2px;
+  align-items: center;
+}
+
+.xy-axis-y {
+  grid-row: 1;
+  grid-column: 1;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.xy-axis-x {
+  grid-row: 2;
+  grid-column: 2;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.xy-surface {
+  grid-row: 1;
+  grid-column: 2;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  background: radial-gradient(circle at 50% 50%, #0e120a, #060803 80%);
+  border: 1px solid var(--line-hot);
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.xy-surface.live {
+  border-color: var(--xy-accent);
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--xy-accent) 22%, transparent);
+}
+
+.xy-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.05) 0 1px,
+      transparent 1px 25%
+    ),
+    repeating-linear-gradient(to top, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 25%);
+}
+
+.xy-cross-h,
+.xy-cross-v {
+  position: absolute;
+  pointer-events: none;
+  background: var(--xy-accent);
+  opacity: 0.4;
+}
+
+.xy-cross-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.xy-cross-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.xy-puck {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--xy-accent);
+  opacity: 0.45;
+  box-shadow: 0 0 8px var(--xy-accent);
+  transition: opacity 0.15s;
+}
+
+.xy-puck.on {
+  opacity: 1;
+  box-shadow: 0 0 10px var(--xy-accent), 0 0 22px var(--xy-accent);
+}
+
+.xy-read {
+  position: absolute;
+  font-size: 9px;
+  color: var(--ink);
+  text-shadow: 0 0 4px #000;
+  pointer-events: none;
+}
+
+.xy-read-x {
+  bottom: 3px;
+  right: 4px;
+}
+
+.xy-read-y {
+  top: 3px;
+  left: 4px;
+}
+
+.xy-modes {
+  display: flex;
+  gap: 4px;
+}
+
+.xy-mode {
+  flex: 1;
+  height: 18px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.xy-mode.on {
+  color: var(--acid);
+  border-color: var(--line-hot);
+  background: rgba(200, 255, 61, 0.1);
+}
+
+.xy-mode.xy-kill {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.xy-fx-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+
+.xy-fx-btn {
+  height: 20px;
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xy-fx-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-hot);
+}
+
+.xy-fx-btn.on {
+  color: #0b0d09;
+  background: var(--xy-accent);
+  border-color: var(--xy-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--xy-accent) 60%, transparent);
+}
+
+/* ── Launchpad Pro MK3 editor screen ─────────────── */
+.stage-lp {
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+  overflow: auto;
+}
+
+.lp-screen {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.lp-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.lp-btn.mini {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.lp-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-hot);
+}
+
+.lp-btn.on {
+  color: #0b0d09;
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+.lp-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.lp-btn .led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.lp-btn.on .led {
+  background: #0b0d09;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+}
+
+.lp-port {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.lp-select,
+.lp-name,
+.lp-num {
+  height: 26px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 8px;
+}
+
+.lp-name {
+  width: 130px;
+}
+.lp-num {
+  width: 70px;
+}
+
+.lp-pages {
+  display: flex;
+  gap: 6px;
+}
+
+.lp-page {
+  height: 30px;
+  padding: 0 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+}
+
+.lp-page.on {
+  color: var(--acid);
+  border-color: var(--line-hot);
+  background: var(--bg-panel);
+}
+
+.lp-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* virtual device */
+.lp-device {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px;
+  background: linear-gradient(180deg, #1a1f15, #0c0f09);
+  border: 1px solid var(--line-hot);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.lp-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 5px;
+}
+
+.lp-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0a0c07;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.05s, box-shadow 0.1s;
+}
+
+.lp-cell.round {
+  border-radius: 50%;
+}
+
+.lp-cell.bound::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.lp-cell.sel {
+  box-shadow: 0 0 0 2px var(--acid), 0 0 10px var(--acid);
+  z-index: 2;
+}
+
+.lp-cell.press {
+  transform: scale(0.9);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+}
+
+.lp-corner {
+  visibility: hidden;
+}
+
+/* inspector */
+.lp-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 200px;
+}
+
+.lp-insp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-dim);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lp-field > span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.lp-colors {
+  display: flex;
+  gap: 12px;
+}
+
+.lp-colors label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.lp-colors input[type="color"] {
+  width: 48px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.lp-seg {
+  display: flex;
+  gap: 6px;
+}
+
+.lp-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}

@@ -30,7 +30,31 @@ export interface ChannelStrip {
   trem: GainNode;
   chorusDelay: DelayNode;
   chorusWet: GainNode;
+  /** XY-pad FX: amplitude gate (gater/slicer), insert after trem */
+  gate: GainNode;
+  /** XY-pad FX: flanger send (modulated short delay + feedback) */
+  flangerDelay: DelayNode;
+  flangerFb: GainNode;
+  flangerWet: GainNode;
+  /** XY-pad FX: phaser send (cascaded allpass chain) */
+  phaserAll: BiquadFilterNode[];
+  phaserWet: GainNode;
+  /** XY-pad FX: bitcrush send (quantizing waveshaper) */
+  crushShaper: WaveShaperNode;
+  crushWet: GainNode;
 }
+
+/** effect ids selectable on the XY pad */
+export type FxId =
+  | "filter"
+  | "echo"
+  | "reverb"
+  | "flanger"
+  | "phaser"
+  | "gater"
+  | "slicer"
+  | "roll"
+  | "bitcrush";
 
 /** running performance-FX handles (LFOs, brake state, stutter timers) */
 interface PerfState {
@@ -40,6 +64,11 @@ interface PerfState {
   brakePrevRate?: number;
   brakeRestoreTimer?: number;
   stutter?: { timer: number; pos: number; startedAt: number; slice: number };
+  /** XY flanger/phaser LFOs */
+  flanger?: { osc: OscillatorNode; depth: GainNode };
+  phaser?: { osc: OscillatorNode; depth: GainNode };
+  /** XY gate scheduler (gater + slicer); params read live each cycle */
+  gate?: { timer: number; nextT: number; rateSec: number; duty: number; depth: number };
 }
 
 export interface Deck {
@@ -167,12 +196,44 @@ export class MixerEngine {
     const chorusWet = c.createGain();
     chorusWet.gain.value = 0;
 
+    // XY FX: amplitude gate (gater/slicer chop), insert after trem
+    const gate = c.createGain();
+    gate.gain.value = 1;
+
+    // XY FX: flanger send — modulated short delay with feedback
+    const flangerDelay = c.createDelay(0.05);
+    flangerDelay.delayTime.value = 0.003;
+    const flangerFb = c.createGain();
+    flangerFb.gain.value = 0;
+    const flangerWet = c.createGain();
+    flangerWet.gain.value = 0;
+
+    // XY FX: phaser send — cascaded allpass chain modulated by a shared LFO
+    const phaserAll: BiquadFilterNode[] = [];
+    for (let i = 0; i < 4; i++) {
+      const ap = c.createBiquadFilter();
+      ap.type = "allpass";
+      ap.frequency.value = 800;
+      ap.Q.value = 0.6;
+      phaserAll.push(ap);
+    }
+    for (let i = 0; i < phaserAll.length - 1; i++) phaserAll[i].connect(phaserAll[i + 1]);
+    const phaserWet = c.createGain();
+    phaserWet.gain.value = 0;
+
+    // XY FX: bitcrush send — quantizing waveshaper
+    const crushShaper = c.createWaveShaper();
+    crushShaper.curve = makeCrushCurve(8);
+    const crushWet = c.createGain();
+    crushWet.gain.value = 0;
+
     trim.connect(low);
     low.connect(mid);
     mid.connect(high);
     high.connect(filter);
     filter.connect(trem);
-    trem.connect(fader);
+    trem.connect(gate);
+    gate.connect(fader);
     trem.connect(chorusDelay);
     chorusDelay.connect(chorusWet);
     chorusWet.connect(fader);
@@ -188,6 +249,18 @@ export class MixerEngine {
     analyser.connect(reverb);
     reverb.connect(reverbWet);
     reverbWet.connect(xfade);
+    // XY sends, all parallel off the post-fader tap
+    analyser.connect(flangerDelay);
+    flangerDelay.connect(flangerFb);
+    flangerFb.connect(flangerDelay);
+    flangerDelay.connect(flangerWet);
+    flangerWet.connect(xfade);
+    analyser.connect(phaserAll[0]);
+    phaserAll[phaserAll.length - 1].connect(phaserWet);
+    phaserWet.connect(xfade);
+    analyser.connect(crushShaper);
+    crushShaper.connect(crushWet);
+    crushWet.connect(xfade);
     xfade.connect(this.master);
 
     return {
@@ -198,6 +271,8 @@ export class MixerEngine {
         trim, low, mid, high, filter, fader, xfade, analyser,
         delay, delayFb, delayWet, reverb, reverbWet,
         trem, chorusDelay, chorusWet,
+        gate, flangerDelay, flangerFb, flangerWet,
+        phaserAll, phaserWet, crushShaper, crushWet,
       },
       playing: false,
       startOffset: 0,
@@ -501,6 +576,14 @@ export class MixerEngine {
     s.filter.frequency.setTargetAtTime(22050, t, 0.03);
     s.trem.gain.setTargetAtTime(1, t, 0.05);
     s.chorusWet.gain.setTargetAtTime(0, t, 0.05);
+    // XY pad FX
+    this.clearGate(id);
+    this.flangerEngage(id, false);
+    this.phaserEngage(id, false);
+    s.flangerWet.gain.setTargetAtTime(0, t, 0.1);
+    s.phaserWet.gain.setTargetAtTime(0, t, 0.1);
+    s.crushWet.gain.setTargetAtTime(0, t, 0.1);
+    s.filter.Q.setTargetAtTime(1.1, t, 0.05);
   }
 
   /* ── performance FX (CDJ pads) — all momentary hold/release ─ */
@@ -668,6 +751,128 @@ export class MixerEngine {
     }
   }
 
+  /* ── XY pad FX (continuous, 0..1 axes) ──────────────────── */
+
+  /** FILTER/POWER — Y sweeps the channel filter, X drives resonance */
+  setFilterXY(id: DeckId, cutoff: number, reso: number) {
+    const f = this.decks[id].strip.filter;
+    // resonance: gentle 0.7 → punchy ~16
+    f.Q.setTargetAtTime(0.7 + reso * reso * 15, this.ctx.currentTime, 0.02);
+    this.setFilter(id, cutoff); // reuse LP/HP sweep (0.5 = bypass)
+  }
+
+  /** reset the sweep filter to bypass + neutral Q */
+  clearFilterXY(id: DeckId) {
+    const f = this.decks[id].strip.filter;
+    f.Q.setTargetAtTime(1.1, this.ctx.currentTime, 0.05);
+    this.setFilter(id, 0.5);
+  }
+
+  /** FLANGER — depth (wet + feedback) and LFO rate; engage/release ramps wet */
+  flangerEngage(id: DeckId, on: boolean) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    if (on && !p.flanger) {
+      p.flanger = this.startLfo(s.flangerDelay.delayTime, 0.4, 0.0018);
+    } else if (!on && p.flanger) {
+      this.stopLfo(p.flanger);
+      p.flanger = undefined;
+      this.rampParam(s.flangerWet.gain, 0, 0.25);
+      s.flangerFb.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+    }
+  }
+  setFlanger(id: DeckId, depth: number, rateHz: number) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    s.flangerWet.gain.setTargetAtTime(depth, t, 0.03);
+    s.flangerFb.gain.setTargetAtTime(0.55 * depth, t, 0.03);
+    if (p.flanger) p.flanger.osc.frequency.setTargetAtTime(rateHz, t, 0.05);
+  }
+
+  /** PHASER — depth (wet) and LFO rate; allpass centre also tracks rate */
+  phaserEngage(id: DeckId, on: boolean) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    if (on && !p.phaser) {
+      const osc = this.ctx.createOscillator();
+      osc.frequency.value = 0.4;
+      const depth = this.ctx.createGain();
+      depth.gain.value = 700;
+      osc.connect(depth);
+      for (const ap of s.phaserAll) depth.connect(ap.frequency);
+      osc.start();
+      p.phaser = { osc, depth };
+    } else if (!on && p.phaser) {
+      this.stopLfo(p.phaser);
+      p.phaser = undefined;
+      this.rampParam(s.phaserWet.gain, 0, 0.25);
+    }
+  }
+  setPhaser(id: DeckId, depth: number, rateHz: number) {
+    const s = this.decks[id].strip;
+    const p = this.perf[id];
+    const t = this.ctx.currentTime;
+    s.phaserWet.gain.setTargetAtTime(depth, t, 0.03);
+    if (p.phaser) p.phaser.osc.frequency.setTargetAtTime(rateHz, t, 0.05);
+  }
+
+  private crushBits: Partial<Record<DeckId, number>> = {};
+
+  /** BITCRUSH — X sets bit depth (rebuilds curve), Y sets wet mix */
+  setBitcrush(id: DeckId, bits: number, wet: number) {
+    const s = this.decks[id].strip;
+    if (this.crushBits[id] !== bits) {
+      s.crushShaper.curve = makeCrushCurve(bits);
+      this.crushBits[id] = bits;
+    }
+    s.crushWet.gain.setTargetAtTime(wet, this.ctx.currentTime, 0.03);
+  }
+  bitcrushEngage(id: DeckId, on: boolean) {
+    if (!on) this.rampParam(this.decks[id].strip.crushWet.gain, 0, 0.15);
+  }
+
+  /**
+   * GATER / SLICER — square amplitude chop on a lookahead scheduler.
+   * Params are read live each cycle so dragging the pad is smooth.
+   * rateSec = period of one chop; duty = open fraction; depth = chop amount.
+   */
+  setGate(id: DeckId, rateSec: number, duty: number, depth: number) {
+    const p = this.perf[id];
+    if (p.gate) {
+      p.gate.rateSec = rateSec;
+      p.gate.duty = duty;
+      p.gate.depth = depth;
+      return;
+    }
+    const gain = this.decks[id].strip.gate.gain;
+    const state = { timer: 0, nextT: this.ctx.currentTime + 0.05, rateSec, duty, depth };
+    state.timer = window.setInterval(() => {
+      while (state.nextT < this.ctx.currentTime + 0.18) {
+        const t0 = state.nextT;
+        const open = Math.max(0.01, state.rateSec * state.duty);
+        const floor = 1 - state.depth;
+        // open instantly, hold, ramp closed, hold closed, ramp back open
+        gain.setValueAtTime(1, t0);
+        gain.setValueAtTime(1, t0 + open - 0.004);
+        gain.linearRampToValueAtTime(floor, t0 + open);
+        gain.setValueAtTime(floor, t0 + state.rateSec - 0.004);
+        gain.linearRampToValueAtTime(1, t0 + state.rateSec);
+        state.nextT += state.rateSec;
+      }
+    }, 25);
+    p.gate = state;
+  }
+  clearGate(id: DeckId) {
+    const p = this.perf[id];
+    if (!p.gate) return;
+    window.clearInterval(p.gate.timer);
+    p.gate = undefined;
+    const gain = this.decks[id].strip.gate.gain;
+    gain.cancelScheduledValues(this.ctx.currentTime);
+    gain.setTargetAtTime(1, this.ctx.currentTime, 0.02);
+  }
+
   private rampParam(p: AudioParam, to: number, dur: number, when?: number) {
     const t0 = when ?? this.ctx.currentTime;
     p.cancelScheduledValues(t0);
@@ -770,6 +975,18 @@ export class MixerEngine {
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     return Math.sqrt(sum / buf.length);
   }
+}
+
+/** quantizing transfer curve for the bitcrush waveshaper (2..16 bits) */
+function makeCrushCurve(bits: number): Float32Array {
+  const levels = Math.max(2, Math.pow(2, Math.max(1, Math.min(16, bits))));
+  const n = 2048;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1; // -1..1
+    curve[i] = Math.round(((x + 1) / 2) * (levels - 1)) / (levels - 1) * 2 - 1;
+  }
+  return curve;
 }
 
 function knobToGain(v: number): number {

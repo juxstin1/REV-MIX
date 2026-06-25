@@ -4,10 +4,15 @@ import { Knob } from "./Knob";
 import { Fader } from "./Fader";
 import { Crossfader } from "./Crossfader";
 import { VUMeter } from "./VUMeter";
+import { XYPad } from "./XYPad";
 
 interface MixerProps {
   xfade: number;
   onXfade: (v: number) => void;
+  /** active deck — the XY pad defaults to it */
+  activeDeck: DeckId;
+  /** beat interval (s) per deck for tempo-synced FX */
+  fxBeats: Record<DeckId, number>;
 }
 
 interface StripState {
@@ -26,7 +31,7 @@ const initialStrip: StripState = { trim: 0.5, high: 0.5, mid: 0.5, low: 0.5, fil
  * brushed faceplate in perspective, rotary pots, LED meters,
  * line faders and a crossfader.
  */
-export function Mixer({ xfade, onXfade }: MixerProps) {
+export function Mixer({ xfade, onXfade, activeDeck, fxBeats }: MixerProps) {
   const [strips, setStrips] = useState<Record<DeckId, StripState>>({
     A: { ...initialStrip },
     B: { ...initialStrip },
@@ -82,6 +87,7 @@ export function Mixer({ xfade, onXfade }: MixerProps) {
               <VUMeter getLevel={levelM} />
             </div>
             <Knob label="MASTER" value={master} onChange={(v) => (setMaster(v), engine.setMaster(v))} size={48} />
+            <XYPad defaultTarget={activeDeck} beats={fxBeats} />
           </div>
 
           <ChannelStrip id="B" strip={strips.B} onChange={update} getLevel={levelB} />
