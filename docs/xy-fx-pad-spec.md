@@ -1,6 +1,12 @@
 # Spec — Square XY FX Pad (Kaoss-style)
 
-Status: **Draft / for review** · Branch: `claude/xy-fx-pad-spec-o1vcso` · Owner: TBD
+Status: **v1 built** (phases 1–3 below; A/B target, 9 effects) · Branch: `claude/xy-fx-pad-spec-o1vcso`
+
+> **Build note:** `XYPad.tsx` + `audio/fx-map.ts` + engine XY DSP are implemented and
+> wired into the mixer centre column. Shipped effects: FILTER, ECHO, REVERB, FLANGER,
+> PHASER, GATER, SLICER, ROLL, BITCRUSH. Deferred to a later pass: MASTER target,
+> VIBRATO, PING-PONG, REVERSER, true bitcrush sample-rate reduction (worklet),
+> live-X roll-length change. See §8.
 
 A square, touch-driven **XY FX pad** in the REV·MIX console. One finger (or pointer)
 drives **two effect parameters at once** — X and Y — over a live crosshair, with an

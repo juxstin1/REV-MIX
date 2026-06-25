@@ -507,7 +507,15 @@ export default function App() {
           markers={markersFor("A")}
         />
 
-        <Mixer xfade={xfade} onXfade={setXfade} />
+        <Mixer
+          xfade={xfade}
+          onXfade={setXfade}
+          activeDeck={activeDeck}
+          fxBeats={{
+            A: tracks.A?.analysis?.beatInterval ?? 60 / 128,
+            B: tracks.B?.analysis?.beatInterval ?? 60 / 128,
+          }}
+        />
 
         <Deck
           id="B"
