@@ -1916,3 +1916,265 @@ body {
   border-color: var(--xy-accent);
   box-shadow: 0 0 6px color-mix(in srgb, var(--xy-accent) 60%, transparent);
 }
+
+/* ── Launchpad Pro MK3 editor screen ─────────────── */
+.stage-lp {
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+  overflow: auto;
+}
+
+.lp-screen {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.lp-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.lp-btn.mini {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.lp-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-hot);
+}
+
+.lp-btn.on {
+  color: #0b0d09;
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+.lp-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.lp-btn .led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.lp-btn.on .led {
+  background: #0b0d09;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+}
+
+.lp-port {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.lp-select,
+.lp-name,
+.lp-num {
+  height: 26px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 8px;
+}
+
+.lp-name {
+  width: 130px;
+}
+.lp-num {
+  width: 70px;
+}
+
+.lp-pages {
+  display: flex;
+  gap: 6px;
+}
+
+.lp-page {
+  height: 30px;
+  padding: 0 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+}
+
+.lp-page.on {
+  color: var(--acid);
+  border-color: var(--line-hot);
+  background: var(--bg-panel);
+}
+
+.lp-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* virtual device */
+.lp-device {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px;
+  background: linear-gradient(180deg, #1a1f15, #0c0f09);
+  border: 1px solid var(--line-hot);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.lp-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 5px;
+}
+
+.lp-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0a0c07;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.05s, box-shadow 0.1s;
+}
+
+.lp-cell.round {
+  border-radius: 50%;
+}
+
+.lp-cell.bound::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.lp-cell.sel {
+  box-shadow: 0 0 0 2px var(--acid), 0 0 10px var(--acid);
+  z-index: 2;
+}
+
+.lp-cell.press {
+  transform: scale(0.9);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+}
+
+.lp-corner {
+  visibility: hidden;
+}
+
+/* inspector */
+.lp-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 200px;
+}
+
+.lp-insp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-dim);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lp-field > span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.lp-colors {
+  display: flex;
+  gap: 12px;
+}
+
+.lp-colors label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.lp-colors input[type="color"] {
+  width: 48px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.lp-seg {
+  display: flex;
+  gap: 6px;
+}
+
+.lp-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}

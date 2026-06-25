@@ -10,6 +10,8 @@ import { Deck } from "./components/Deck";
 import { Mixer } from "./components/Mixer";
 import { Library } from "./components/Library";
 import { Sequencer } from "./components/Sequencer";
+import { LaunchpadScreen } from "./components/LaunchpadScreen";
+import { LpMapping } from "./audio/launchpad-map";
 import {
   LibraryData,
   SetEntry,
@@ -39,7 +41,7 @@ export default function App() {
   const [lib, setLib] = useState<LibraryData>(emptyLibrary);
   const [libOpen, setLibOpen] = useState(false);
   const [setLog, setSetLog] = useState<SetEntry[]>([]);
-  const [view, setView] = useState<"decks" | "seq">("decks");
+  const [view, setView] = useState<"decks" | "seq" | "lp">("decks");
   const libLoaded = useRef(false);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
@@ -442,6 +444,10 @@ export default function App() {
     setLib((l) => ({ ...l, patterns: l.patterns.filter((p) => p.id !== id) }));
   }, []);
 
+  const persistLaunchpad = useCallback((mappings: LpMapping[], currentId: string) => {
+    setLib((l) => ({ ...l, launchpad: { mappings, currentId } }));
+  }, []);
+
   /* ── render ─────────────────────────────────────────────── */
 
   const markersFor = (deck: DeckId): { t: number; label: string }[] => {
@@ -465,9 +471,15 @@ export default function App() {
         <div className="topbar-controls">
           <button
             className={`lib-toggle${view === "seq" ? " active" : ""}`}
-            onClick={() => setView((v) => (v === "decks" ? "seq" : "decks"))}
+            onClick={() => setView((v) => (v === "seq" ? "decks" : "seq"))}
           >
-            {view === "decks" ? "SEQUENCER" : "DECKS"}
+            {view === "seq" ? "DECKS" : "SEQUENCER"}
+          </button>
+          <button
+            className={`lib-toggle${view === "lp" ? " active" : ""}`}
+            onClick={() => setView((v) => (v === "lp" ? "decks" : "lp"))}
+          >
+            {view === "lp" ? "DECKS" : "LAUNCHPAD"}
           </button>
           <button className="lib-toggle" onClick={() => setLibOpen((o) => !o)}>
             LIBRARY
@@ -493,7 +505,24 @@ export default function App() {
         </main>
       )}
 
-      <main className="stage" style={view === "seq" ? { display: "none" } : undefined}>
+      {view === "lp" && (
+        <main className="stage stage-lp">
+          <LaunchpadScreen
+            getActiveDeck={() => activeDeck}
+            setActiveDeck={setActiveDeck}
+            playPause={(d) => void playPause(d)}
+            beats={{
+              A: tracks.A?.analysis?.beatInterval ?? 60 / 128,
+              B: tracks.B?.analysis?.beatInterval ?? 60 / 128,
+            }}
+            initialMappings={lib.launchpad?.mappings}
+            initialCurrentId={lib.launchpad?.currentId}
+            onPersist={persistLaunchpad}
+          />
+        </main>
+      )}
+
+      <main className="stage" style={view !== "decks" ? { display: "none" } : undefined}>
         <Deck
           id="A"
           track={tracks.A}

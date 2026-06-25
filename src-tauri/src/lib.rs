@@ -1,3 +1,5 @@
+mod launchpad;
+
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -168,10 +170,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(launchpad::LpState::default())
         .invoke_handler(tauri::generate_handler![
             separate_vocals,
             load_library,
-            save_library
+            save_library,
+            launchpad::lp_list_ports,
+            launchpad::lp_connect,
+            launchpad::lp_disconnect,
+            launchpad::lp_send_leds,
+            launchpad::lp_send_raw,
+            launchpad::lp_bridge_start,
+            launchpad::lp_bridge_cc,
+            launchpad::lp_bridge_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

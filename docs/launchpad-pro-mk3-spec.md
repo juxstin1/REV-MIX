@@ -1,6 +1,16 @@
 # Spec — Launchpad Pro MK3 Control Surface + Customization Screen
 
-Status: **Draft / research-heavy, for review before build** · Branch: `claude/xy-fx-pad-spec-o1vcso`
+Status: **v1 built** (Rust midir backend + full editor + XY-on-grid + host bridge) · Branch: `claude/xy-fx-pad-spec-o1vcso`
+
+> **Build note:** implemented per this spec. `src-tauri/launchpad.rs` (midir, commands +
+> `lp:input`/`lp:state` events), TS client `audio/launchpad.ts`, mapping model
+> `audio/launchpad-map.ts`, XY engine `audio/launchpad-xy.ts` (centroid · per-axis glide ·
+> lock/freeze · pressure→Z), dispatch+LED runtime `audio/launchpad-runtime.ts`, and the
+> `LaunchpadScreen` editor (virtual device, inspector, MIDI-learn, pages, colour, connect,
+> mirror, bridge), persisted to the library JSON. Host cheat-sheets in `tools/host-maps/`.
+> TS typechecks + Vite builds clean. **The Rust crate can't compile in this cloud
+> container (no GTK/ALSA system libs) — that's tonight's bring-up on the real toolchain;**
+> the ⚠VERIFY list below still stands.
 
 Add a **Launchpad Pro [MK3]** integration to REV·MIX: drive the 64 RGB pads + edge
 buttons as a hardware control surface, **and** a screen to **customize** what every

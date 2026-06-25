@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  REVMIX XY Bridge — rekordbox MIDI mapping (STARTING TEMPLATE).
+
+  This is a best-effort scaffold for the three XY CCs (X=16, Y=17, Z=18 on
+  MIDI channel 1). rekordbox MIDI-map XML is version-sensitive and the exact
+  <MidiMappingInfo> attributes / FX target ids differ across releases, so treat
+  this as a reference to import-and-refine, not a guaranteed drop-in. The
+  reliable path is MIDI-LEARN (see README.md); use this to see the shape.
+
+  After importing: Preferences -> Controller -> MIDI -> REVMIX XY Bridge.
+-->
+<DEVICE name="REVMIX XY Bridge">
+  <MIDIMAPPINGLIST>
+    <!-- X  → FX1 parameter 1 (e.g. filter / wet) -->
+    <MIDIMAPPING Type="0" Note="16" Channel="1"
+                 Target="fx1-param1" MappingType="slider" />
+    <!-- Y  → FX1 parameter 2 (e.g. echo feedback) -->
+    <MIDIMAPPING Type="0" Note="17" Channel="1"
+                 Target="fx1-param2" MappingType="slider" />
+    <!-- Z  (pressure) → FX1 depth / dry-wet -->
+    <MIDIMAPPING Type="0" Note="18" Channel="1"
+                 Target="fx1-level" MappingType="slider" />
+  </MIDIMAPPINGLIST>
+</DEVICE>
+</content>

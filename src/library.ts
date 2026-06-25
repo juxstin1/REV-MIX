@@ -5,6 +5,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { LpMapping } from "./audio/launchpad-map";
 
 export interface LibTrack {
   path: string;
@@ -50,6 +51,8 @@ export interface LibraryData {
   playlists: Playlist[];
   sets: SavedSet[];
   patterns: SeqPattern[];
+  /** Launchpad Pro MK3 control-surface mappings */
+  launchpad?: { mappings: LpMapping[]; currentId: string };
 }
 
 export const emptyLibrary = (): LibraryData => ({ tracks: [], playlists: [], sets: [], patterns: [] });
@@ -68,6 +71,7 @@ export async function loadLibrary(): Promise<LibraryData> {
       playlists: Array.isArray(d.playlists) ? d.playlists : [],
       sets: Array.isArray(d.sets) ? d.sets : [],
       patterns: Array.isArray(d.patterns) ? d.patterns : [],
+      launchpad: d.launchpad,
     };
   } catch {
     return emptyLibrary();
