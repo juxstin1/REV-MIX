@@ -43,6 +43,8 @@ export default function App() {
   const [setLog, setSetLog] = useState<SetEntry[]>([]);
   const [view, setView] = useState<"decks" | "seq" | "lp">("decks");
   const libLoaded = useRef(false);
+  // gates the always-mounted Launchpad surface so it boots with persisted maps
+  const [libReady, setLibReady] = useState(false);
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
 
@@ -50,6 +52,7 @@ export default function App() {
     loadLibrary().then((d) => {
       setLib(d);
       libLoaded.current = true;
+      setLibReady(true);
     });
   }, []);
 
@@ -505,8 +508,11 @@ export default function App() {
         </main>
       )}
 
-      {view === "lp" && (
-        <main className="stage stage-lp">
+      {/* The Launchpad surface stays MOUNTED across views (hidden, like the decks)
+          so the hardware keeps driving fx-map / cues / the bridge while you're on
+          the decks — it's a control surface, not just an editor screen. */}
+      {libReady && (
+        <main className="stage stage-lp" style={view !== "lp" ? { display: "none" } : undefined}>
           <LaunchpadScreen
             getActiveDeck={() => activeDeck}
             setActiveDeck={setActiveDeck}

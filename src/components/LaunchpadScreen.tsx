@@ -58,6 +58,7 @@ export function LaunchpadScreen({
   const [learn, setLearn] = useState(false);
   const [connected, setConnected] = useState(false);
   const [portName, setPortName] = useState<string>("");
+  const [connectError, setConnectError] = useState<string>("");
   const [mirror, setMirror] = useState(true);
   const [bridge, setBridge] = useState(false);
   const [pressed, setPressed] = useState<Set<number>>(new Set());
@@ -240,12 +241,19 @@ export function LaunchpadScreen({
     if (connected) {
       await launchpad.disconnect();
       setConnected(false);
+      setConnectError("");
       return;
     }
-    const name = await launchpad.connect();
-    if (name) {
+    const res = await launchpad.connect();
+    if (res.ok) {
       setConnected(true);
-      setPortName(name);
+      setPortName(res.name);
+      setConnectError("");
+    } else if (res.error !== "preview") {
+      // port-not-found is almost always the sleep/replug issue (see bring-up log)
+      setConnectError(
+        /not found/i.test(res.error) ? "no device — power on / replug the USB" : res.error
+      );
     }
   };
   const toggleBridge = async () => {
@@ -271,7 +279,9 @@ export function LaunchpadScreen({
           <button className={`lp-btn${connected ? " on" : ""}`} onClick={connect}>
             <i className="led" /> {connected ? "CONNECTED" : "CONNECT"}
           </button>
-          <span className="lp-port mono">{connected ? portName : inTauri ? "no device" : "browser preview"}</span>
+          <span className={`lp-port mono${connectError ? " err" : ""}`}>
+            {connected ? portName : connectError || (inTauri ? "no device" : "browser preview")}
+          </span>
         </div>
         <div className="lp-tool-group">
           <button className={`lp-btn mini${mirror ? " on" : ""}`} onClick={() => setMirror((m) => !m)} title="send LEDs to hardware">

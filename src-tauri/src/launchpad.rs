@@ -16,7 +16,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
 /// Novation manufacturer + Pro MK3 model header (no F0).
-const HDR: [u8; 6] = [0x00, 0x20, 0x29, 0x02, 0x0E];
+/// `00 20 29` = Novation, `02 0E` = Pro MK3 model id — 5 bytes.
+const HDR: [u8; 5] = [0x00, 0x20, 0x29, 0x02, 0x0E];
 const PROGRAMMER_ON: [u8; 8] = [0xF0, 0x00, 0x20, 0x29, 0x02, 0x0E, 0x0E, 0x01];
 const PROGRAMMER_OFF: [u8; 8] = [0xF0, 0x00, 0x20, 0x29, 0x02, 0x0E, 0x0E, 0x00];
 
@@ -49,11 +50,32 @@ fn clamp7(v: u8) -> u8 {
     v.min(127)
 }
 
-/// Does this port name look like the Pro MK3's Programmer port (not the DAW one)?
+/// Does this port name look like the Pro MK3's **Programmer/standalone** port?
+///
+/// The unit exposes three USB-MIDI port pairs. We want the base surface port and
+/// must reject the others:
+///   - macOS: a separate `… DAW` port for the Live handshake.
+///   - Windows: WinMM names them `LPProMK3 MIDI` (base — what we want),
+///     `MIDIIN2/MIDIOUT2 (LPProMK3 MIDI)` (DAW), and `MIDIIN3/MIDIOUT3 (…)` (DIN).
+/// Verified on real hardware (build 26200, NovationUsbMidi driver): the base
+/// `LPProMK3 MIDI` port is the one that enters Programmer Mode and carries the grid.
 fn is_lp_port(name: &str) -> bool {
     let n = name.to_lowercase();
-    (n.contains("launchpad pro") || n.contains("lppromk3") || n.contains("lppro mk3"))
-        && !n.contains("daw")
+    let is_lp =
+        n.contains("launchpad pro") || n.contains("lppromk3") || n.contains("lppro mk3");
+    if !is_lp {
+        return false;
+    }
+    // macOS DAW port:
+    if n.contains("daw") {
+        return false;
+    }
+    // Windows secondary interfaces (DAW = 2, DIN = 3):
+    if n.contains("midiin2") || n.contains("midiin3") || n.contains("midiout2") || n.contains("midiout3")
+    {
+        return false;
+    }
+    true
 }
 
 #[tauri::command]
@@ -72,6 +94,11 @@ pub fn lp_connect(
     state: State<'_, LpState>,
     port_hint: Option<String>,
 ) -> Result<String, String> {
+    // Make reconnect safe: release any existing connection first. WinMM input
+    // ports are exclusive, so a stale handle would block re-opening the port.
+    *state.input.lock().unwrap() = None;
+    *state.out.lock().unwrap() = None;
+
     // ----- output -----
     let mo = MidiOutput::new("REVMIX-out").map_err(|e| e.to_string())?;
     let out_ports = mo.ports();
@@ -135,6 +162,12 @@ pub fn lp_connect(
 
 fn parse_midi(msg: &[u8]) -> Option<LpInput> {
     if msg.is_empty() {
+        return None;
+    }
+    // Ignore System Real-Time (0xF8 clock, 0xFA/FB/FC transport, 0xFE active
+    // sensing) and System Common / SysEx (0xF0..0xF7). The Pro MK3 streams
+    // MIDI clock (0xF8) continuously; these are not surface events.
+    if msg[0] >= 0xF0 {
         return None;
     }
     let status = msg[0] & 0xF0;

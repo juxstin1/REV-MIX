@@ -2004,6 +2004,9 @@ body {
   font-size: 10px;
   color: var(--ink-faint);
 }
+.lp-port.err {
+  color: #ff5d5d;
+}
 
 .lp-select,
 .lp-name,

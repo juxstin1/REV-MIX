@@ -47,10 +47,12 @@ export const FX_DEFS: FxDef[] = [
   {
     id: "filter",
     label: "FILTER",
-    xLabel: "RESO",
+    xLabel: "POWER",
     yLabel: "FILTER",
     idle: { x: 0, y: 0.5 },
     engage: () => {},
+    // X = POWER (resonance + drive into the master soft-clip), Y = FILTER
+    // (0.5 open · down = lowpass · up = highpass).
     apply: (id, x, y) => {
       engine.setFilterXY(id, y, x);
       return { x: pct(x), y: filterReadout(y) };
