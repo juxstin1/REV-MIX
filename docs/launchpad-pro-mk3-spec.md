@@ -1,6 +1,7 @@
 # Spec — Launchpad Pro MK3 Control Surface + Customization Screen
 
-Status: **v1 built** (Rust midir backend + full editor + XY-on-grid + host bridge) · Branch: `claude/xy-fx-pad-spec-o1vcso`
+Status: **v1 built · Phase-1 transport hardware-verified on Windows** (Rust midir backend
++ full editor + XY-on-grid + host bridge) · Branch: `claude/xy-fx-pad-spec-o1vcso`
 
 > **Build note:** implemented per this spec. `src-tauri/launchpad.rs` (midir, commands +
 > `lp:input`/`lp:state` events), TS client `audio/launchpad.ts`, mapping model
@@ -8,9 +9,24 @@ Status: **v1 built** (Rust midir backend + full editor + XY-on-grid + host bridg
 > lock/freeze · pressure→Z), dispatch+LED runtime `audio/launchpad-runtime.ts`, and the
 > `LaunchpadScreen` editor (virtual device, inspector, MIDI-learn, pages, colour, connect,
 > mirror, bridge), persisted to the library JSON. Host cheat-sheets in `tools/host-maps/`.
-> TS typechecks + Vite builds clean. **The Rust crate can't compile in this cloud
-> container (no GTK/ALSA system libs) — that's tonight's bring-up on the real toolchain;**
-> the ⚠VERIFY list below still stands.
+> TS typechecks + Vite builds clean.
+>
+> **Bring-up log (2026-06-25, Win11 26200, real Pro MK3):**
+> - Fixed a Rust compile error: `HDR` was `[u8; 6]` for a 5-byte header → `[u8; 5]`. The
+>   crate now builds clean against the full Tauri + midir stack (MSVC, ~stable-msvc).
+> - **Round-trip verified on hardware** via `src-tauri/examples/midi_probe.rs`: Programmer
+>   Mode entered, pad 11 lit green (RGB SysEx out), and grid notes / velocity / aftertouch /
+>   edge CCs all read back correctly.
+> - **Grid addressing confirmed:** `note = row*10 + col` (e.g. pad r3c1 → note 31, r6c8 → 68).
+> - **Edge CCs confirmed:** top edge 91–98 (saw 94/95), left edge ×0 (saw 30).
+> - **Aftertouch is CHANNEL pressure (`0xD0`), not poly (`0xA0`)** on this unit's default —
+>   fine for the single-finger XY-Z axis; the TS runtime must read `kind:"pressure"`.
+> - **Programmer port = base `LPProMK3 MIDI`** (Windows also exposes `MIDIIN2/OUT2` = DAW and
+>   `MIDIIN3/OUT3` = DIN). `is_lp_port` was tightened to select the base port deterministically.
+> - The unit streams **MIDI clock (`0xF8`)** continuously; `parse_midi` now explicitly drops
+>   all System Real-Time / Common (`≥0xF0`).
+> - **Gotcha:** the MIDI ports go un-enumerable (0 ports in *both* WinMM and WinRT) after a
+>   sleep/idle; a **USB replug** restarts the NovationUsbMidi port nodes and they reappear.
 
 Add a **Launchpad Pro [MK3]** integration to REV·MIX: drive the 64 RGB pads + edge
 buttons as a hardware control surface, **and** a screen to **customize** what every

@@ -98,16 +98,39 @@ export class MixerEngine {
   readonly decks: Record<DeckId, Deck>;
   readonly master: GainNode;
   readonly masterAnalyser: AnalyserNode;
+  /** brickwall limiter on the master bus (peak safety for summed FX sends) */
+  readonly masterLimiter!: DynamicsCompressorNode;
   private xfadePos = 0.5;
   private workletReady: Promise<void>;
 
   constructor() {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.9;
+    // Headroom: sit a few dB below the limiter so normal program material stays
+    // dynamic and only peaks/FX-sends get caught (0.9 slammed everything = "too loud").
+    this.master.gain.value = 0.72;
     this.masterAnalyser = this.ctx.createAnalyser();
     this.masterAnalyser.fftSize = 1024;
-    this.master.connect(this.masterAnalyser);
+
+    // Master output stage: musical limiter → gentle tanh soft-clip. The FX sends
+    // sum on top of the dry signal and can peak over 0 dBFS; without this the
+    // destination hard-clips (the harsh digital distortion). A soft-knee limiter
+    // (not a brickwall) holds peaks while keeping dynamics; the soft-clip rounds
+    // any overshoot into musical saturation. "Loud but clean," not "slammed."
+    const limiter = this.ctx.createDynamicsCompressor();
+    limiter.threshold.value = -2;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 8;
+    limiter.attack.value = 0.004;
+    limiter.release.value = 0.2;
+    const softClip = this.ctx.createWaveShaper();
+    softClip.curve = makeSoftClipCurve();
+    softClip.oversample = "4x";
+    this.masterLimiter = limiter;
+
+    this.master.connect(limiter);
+    limiter.connect(softClip);
+    softClip.connect(this.masterAnalyser);
     this.masterAnalyser.connect(this.ctx.destination);
 
     this.decks = {
@@ -473,9 +496,9 @@ export class MixerEngine {
       f.frequency.setTargetAtTime(80 * Math.pow(22050 / 80, norm), t, 0.01);
     } else {
       f.type = "highpass";
-      // 0.5 → 20 Hz, 1 → 8 kHz
+      // 0.5 → 20 Hz, 1 → 5 kHz (8 kHz top was thin/screechy at the extreme)
       const norm = (v - 0.5) / 0.5;
-      f.frequency.setTargetAtTime(20 * Math.pow(8000 / 20, norm), t, 0.01);
+      f.frequency.setTargetAtTime(20 * Math.pow(5000 / 20, norm), t, 0.01);
     }
   }
 
@@ -756,8 +779,9 @@ export class MixerEngine {
   /** FILTER/POWER — Y sweeps the channel filter, X drives resonance */
   setFilterXY(id: DeckId, cutoff: number, reso: number) {
     const f = this.decks[id].strip.filter;
-    // resonance: gentle 0.7 → punchy ~16
-    f.Q.setTargetAtTime(0.7 + reso * reso * 15, this.ctx.currentTime, 0.02);
+    // resonance ("power"): gentle 0.7 → characterful ~5. Kept musical so the
+    // resonant peak stays smooth at the top (Q16 screamed, ~7 still edgy).
+    f.Q.setTargetAtTime(0.7 + reso * reso * 4.3, this.ctx.currentTime, 0.02);
     this.setFilter(id, cutoff); // reuse LP/HP sweep (0.5 = bypass)
   }
 
@@ -851,12 +875,18 @@ export class MixerEngine {
       while (state.nextT < this.ctx.currentTime + 0.18) {
         const t0 = state.nextT;
         const open = Math.max(0.01, state.rateSec * state.duty);
-        const floor = 1 - state.depth;
-        // open instantly, hold, ramp closed, hold closed, ramp back open
+        // Soften fast chops: shorten travel and shrink depth as the period gets
+        // small, so 1/16 pulses smoothly instead of buzzing like a square wave.
+        const fast = Math.min(1, state.rateSec / 0.05); // <50 ms → ease off
+        const depth = state.depth * (0.45 + 0.55 * fast);
+        const floor = 1 - depth;
+        // edges scale with the open time (≈40%) so transitions stay rounded at
+        // speed, capped so slow chops still feel punchy
+        const edge = Math.min(0.01, open * 0.4);
         gain.setValueAtTime(1, t0);
-        gain.setValueAtTime(1, t0 + open - 0.004);
+        gain.setValueAtTime(1, Math.max(t0, t0 + open - edge));
         gain.linearRampToValueAtTime(floor, t0 + open);
-        gain.setValueAtTime(floor, t0 + state.rateSec - 0.004);
+        gain.setValueAtTime(floor, Math.max(t0 + open, t0 + state.rateSec - edge));
         gain.linearRampToValueAtTime(1, t0 + state.rateSec);
         state.nextT += state.rateSec;
       }
@@ -975,6 +1005,20 @@ export class MixerEngine {
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     return Math.sqrt(sum / buf.length);
   }
+}
+
+/** tanh soft-clip transfer curve for the master bus — rounds peaks into
+ *  saturation instead of a hard digital clip. Normalized so unity ≈ unity. */
+function makeSoftClipCurve(): Float32Array {
+  const n = 2048;
+  const curve = new Float32Array(n);
+  const k = 1.3; // drive: higher = earlier/softer saturation
+  const norm = Math.tanh(k);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1; // -1..1
+    curve[i] = Math.tanh(k * x) / norm;
+  }
+  return curve;
 }
 
 /** quantizing transfer curve for the bitcrush waveshaper (2..16 bits) */
